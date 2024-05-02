@@ -35,11 +35,14 @@
     <PackageReference Include="System.Management" Version="8.0.0" />
   </ItemGroup>
   <ItemGroup>
-    <Reference Include="CommStudio.Express.3.5">
-      <HintPath>lib\CommStudio.Express.3.5.dll</HintPath>
-    </Reference>
     <Reference Include="GlobalHotkeys">
       <HintPath>lib\GlobalHotkeys.dll</HintPath>
     </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="Properties\" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\EDTrackerWpfControls\EDTrackerWpfControls.csproj" />
   </ItemGroup>
 </Project>

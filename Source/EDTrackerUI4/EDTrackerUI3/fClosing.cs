@@ -11,10 +11,9 @@ using System.Windows.Forms;
 #nullable disable
 namespace EDTrackerUI3
 {
-  public class fClosing : Form
+  public partial class fClosing : Form
   {
     private BackgroundWorker backgroundWorker1;
-    private IContainer components;
     private ProgressBar progressBar1;
 
     public fClosing()
@@ -36,33 +35,6 @@ namespace EDTrackerUI3
     private void backgroundWorker1_ProgressChanged(object sender, ProgressChangedEventArgs e)
     {
       this.progressBar1.Value = e.ProgressPercentage;
-    }
-
-    protected override void Dispose(bool disposing)
-    {
-      if (disposing && this.components != null)
-        this.components.Dispose();
-      base.Dispose(disposing);
-    }
-
-    private void InitializeComponent()
-    {
-      ComponentResourceManager componentResourceManager = new ComponentResourceManager(typeof (fClosing));
-      this.progressBar1 = new ProgressBar();
-      this.SuspendLayout();
-      componentResourceManager.ApplyResources((object) this.progressBar1, "progressBar1");
-      this.progressBar1.MarqueeAnimationSpeed = 50;
-      this.progressBar1.Name = "progressBar1";
-      this.progressBar1.Style = ProgressBarStyle.Marquee;
-      this.progressBar1.UseWaitCursor = true;
-      componentResourceManager.ApplyResources((object) this, "$this");
-      this.AutoScaleMode = AutoScaleMode.Font;
-      this.ControlBox = false;
-      this.Controls.Add((Control) this.progressBar1);
-      this.FormBorderStyle = FormBorderStyle.FixedToolWindow;
-      this.Name = nameof (fClosing);
-      this.UseWaitCursor = true;
-      this.ResumeLayout(false);
-    }
+    }   
   }
 }

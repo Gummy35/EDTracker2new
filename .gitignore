@@ -1,0 +1,9 @@
+﻿################################################################################
+# Ce fichier .gitignore a été automatiquement créé par Microsoft(R) Visual Studio.
+################################################################################
+
+/Source/EDTrackerWpfControls/obj
+/Source/EDTrackerUI4/obj
+/Source/EDTrackerUI4/.vs
+/Source/EDTrackerUI4/bin/Debug/net8.0-windows
+/.vs

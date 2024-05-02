@@ -383,48 +383,59 @@ namespace EDTrackerUI3
       base.Dispose(disposing);
     }
 
-    private void InitializeComponent()
-    {
-      this.rtLog = new RichTextBox();
-      this.progressBar1 = new ProgressBar();
-      this.bClose = new Button();
-      this.SuspendLayout();
-      this.rtLog.BorderStyle = BorderStyle.FixedSingle;
-      this.rtLog.DetectUrls = false;
-      this.rtLog.Font = new Font("Courier New", 8.25f, FontStyle.Regular, GraphicsUnit.Point, (byte) 0);
-      this.rtLog.Location = new Point(7, 12);
-      this.rtLog.Name = "rtLog";
-      this.rtLog.ScrollBars = RichTextBoxScrollBars.ForcedVertical;
-      this.rtLog.Size = new Size(517, 273);
-      this.rtLog.TabIndex = 0;
-      this.rtLog.Text = "";
-      this.progressBar1.Cursor = Cursors.Default;
-      this.progressBar1.Location = new Point(7, 291);
-      this.progressBar1.Name = "progressBar1";
-      this.progressBar1.Size = new Size(436, 25);
-      this.progressBar1.TabIndex = 1;
-      this.bClose.Cursor = Cursors.Default;
-      this.bClose.Enabled = false;
-      this.bClose.Location = new Point(449, 293);
-      this.bClose.Name = "bClose";
-      this.bClose.Size = new Size(75, 23);
-      this.bClose.TabIndex = 2;
-      this.bClose.Text = "Close";
-      this.bClose.UseVisualStyleBackColor = true;
-      this.bClose.Click += new EventHandler(this.bClose_Click);
-      this.AutoScaleMode = AutoScaleMode.None;
-      this.ClientSize = new Size(536, 328);
-      this.ControlBox = false;
-      this.Controls.Add((Control) this.bClose);
-      this.Controls.Add((Control) this.progressBar1);
-      this.Controls.Add((Control) this.rtLog);
-      this.FormBorderStyle = FormBorderStyle.FixedSingle;
-      this.MaximizeBox = false;
-      this.MinimizeBox = false;
-      this.Name = nameof (flashDialog);
-      this.Text = "Flash EDTracker";
-      this.TopMost = true;
-      this.ResumeLayout(false);
+        private void InitializeComponent()
+        {
+            rtLog = new RichTextBox();
+            progressBar1 = new ProgressBar();
+            bClose = new Button();
+            SuspendLayout();
+            // 
+            // rtLog
+            // 
+            rtLog.BorderStyle = BorderStyle.FixedSingle;
+            rtLog.DetectUrls = false;
+            rtLog.Font = new Font("Courier New", 8.25F, FontStyle.Regular, GraphicsUnit.Point, 0);
+            rtLog.Location = new Point(7, 12);
+            rtLog.Name = "rtLog";
+            rtLog.ScrollBars = RichTextBoxScrollBars.ForcedVertical;
+            rtLog.Size = new Size(517, 273);
+            rtLog.TabIndex = 0;
+            rtLog.Text = "";
+            // 
+            // progressBar1
+            // 
+            progressBar1.Location = new Point(7, 291);
+            progressBar1.Name = "progressBar1";
+            progressBar1.Size = new Size(436, 25);
+            progressBar1.TabIndex = 1;
+            // 
+            // bClose
+            // 
+            bClose.Enabled = false;
+            bClose.Location = new Point(449, 291);
+            bClose.Name = "bClose";
+            bClose.Size = new Size(75, 25);
+            bClose.TabIndex = 2;
+            bClose.Tag = "1";
+            bClose.Text = "Close";
+            bClose.UseVisualStyleBackColor = true;
+            bClose.Click += bClose_Click;
+            // 
+            // flashDialog
+            // 
+            AutoScaleMode = AutoScaleMode.None;
+            ClientSize = new Size(536, 328);
+            ControlBox = false;
+            Controls.Add(bClose);
+            Controls.Add(progressBar1);
+            Controls.Add(rtLog);
+            FormBorderStyle = FormBorderStyle.FixedSingle;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            Name = "flashDialog";
+            Text = "Flash EDTracker";
+            TopMost = true;
+            ResumeLayout(false);
+        }
     }
-  }
 }

@@ -16,54 +16,59 @@ namespace EDTrackerUI3
     private IContainer components;
     private ListBox rtbInfo;
 
-    public frmDebug() => this.InitializeComponent();
+    public frmDebug() => InitializeComponent();
 
     public void logMessage(string mess)
     {
-      this.rtbInfo.Items.Add((object) mess);
-      while (this.rtbInfo.Items.Count > 20)
-        this.rtbInfo.Items.RemoveAt(0);
+      rtbInfo.Items.Add((object) mess);
+      while (rtbInfo.Items.Count > 20)
+        rtbInfo.Items.RemoveAt(0);
     }
 
     protected override void Dispose(bool disposing)
     {
-      if (disposing && this.components != null)
-        this.components.Dispose();
+      if (disposing && components != null)
+        components.Dispose();
       base.Dispose(disposing);
     }
 
-    private void InitializeComponent()
-    {
-      this.rtbInfo = new ListBox();
-      this.SuspendLayout();
-      this.rtbInfo.CausesValidation = false;
-      this.rtbInfo.Enabled = false;
-      this.rtbInfo.FormattingEnabled = true;
-      this.rtbInfo.Items.AddRange(new object[1]
-      {
-        (object) ">Log Messages"
-      });
-      this.rtbInfo.Location = new Point(-4, -1);
-      this.rtbInfo.Name = "rtbInfo";
-      this.rtbInfo.Size = new Size(664, 264);
-      this.rtbInfo.TabIndex = 63;
-      this.rtbInfo.TabStop = false;
-      this.rtbInfo.UseTabStops = false;
-      this.AutoScaleDimensions = new SizeF(6f, 13f);
-      this.AutoScaleMode = AutoScaleMode.Font;
-      this.AutoValidate = AutoValidate.Disable;
-      this.ClientSize = new Size(660, 262);
-      this.Controls.Add((Control) this.rtbInfo);
-      this.DoubleBuffered = true;
-      this.FormBorderStyle = FormBorderStyle.FixedDialog;
-      this.MaximizeBox = false;
-      this.MinimizeBox = false;
-      this.Name = nameof (frmDebug);
-      this.ShowIcon = false;
-      this.ShowInTaskbar = false;
-      this.Text = "Log Messages";
-      this.TopMost = true;
-      this.ResumeLayout(false);
+        private void InitializeComponent()
+        {
+            rtbInfo = new ListBox();
+            SuspendLayout();
+            // 
+            // rtbInfo
+            // 
+            rtbInfo.CausesValidation = false;
+            rtbInfo.Enabled = false;
+            rtbInfo.FormattingEnabled = true;
+            rtbInfo.Items.AddRange(new object[] { ">Log Messages" });
+            rtbInfo.Location = new Point(-4, -1);
+            rtbInfo.Margin = new Padding(4, 5, 4, 5);
+            rtbInfo.Name = "rtbInfo";
+            rtbInfo.Size = new Size(664, 264);
+            rtbInfo.TabIndex = 63;
+            rtbInfo.TabStop = false;
+            rtbInfo.UseTabStops = false;
+            // 
+            // frmDebug
+            // 
+            AutoScaleDimensions = new SizeF(7F, 13F);
+            AutoScaleMode = AutoScaleMode.Font;
+            AutoValidate = AutoValidate.Disable;
+            ClientSize = new Size(660, 262);
+            Controls.Add(rtbInfo);
+            DoubleBuffered = true;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            Margin = new Padding(4, 5, 4, 5);
+            MaximizeBox = false;
+            MinimizeBox = false;
+            Name = "frmDebug";
+            ShowIcon = false;
+            ShowInTaskbar = false;
+            Text = "Log Messages";
+            TopMost = true;
+            ResumeLayout(false);
+        }
     }
-  }
 }

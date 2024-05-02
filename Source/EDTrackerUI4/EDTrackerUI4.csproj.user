@@ -23,6 +23,9 @@
     <Compile Update="EDTrackerUI3\Form1.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Update="EDTrackerUI3\Form2.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Update="EDTrackerUI3\frmBiasCalc.cs">
       <SubType>Form</SubType>
     </Compile>

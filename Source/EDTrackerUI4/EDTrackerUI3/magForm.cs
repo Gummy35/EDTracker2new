@@ -25,27 +25,35 @@ namespace EDTrackerUI3
       base.Dispose(disposing);
     }
 
-    private void InitializeComponent()
-    {
-      this.richTextBox1 = new RichTextBox();
-      this.SuspendLayout();
-      this.richTextBox1.Location = new Point(11, 12);
-      this.richTextBox1.Name = "richTextBox1";
-      this.richTextBox1.Size = new Size(218, 46);
-      this.richTextBox1.TabIndex = 64;
-      this.richTextBox1.Text = "Rotate you EDTracker in all axis until values no longer change.";
-      this.AutoScaleDimensions = new SizeF(6f, 13f);
-      this.AutoScaleMode = AutoScaleMode.Font;
-      this.ClientSize = new Size(245, 207);
-      this.Controls.Add((Control) this.richTextBox1);
-      this.FormBorderStyle = FormBorderStyle.FixedToolWindow;
-      this.MaximizeBox = false;
-      this.MinimizeBox = false;
-      this.Name = nameof (magForm);
-      this.ShowIcon = false;
-      this.ShowInTaskbar = false;
-      this.Text = "Magnetometer Calibration";
-      this.ResumeLayout(false);
+        private void InitializeComponent()
+        {
+            richTextBox1 = new RichTextBox();
+            SuspendLayout();
+            // 
+            // richTextBox1
+            // 
+            richTextBox1.Location = new Point(11, 12);
+            richTextBox1.Margin = new Padding(4, 5, 4, 5);
+            richTextBox1.Name = "richTextBox1";
+            richTextBox1.Size = new Size(218, 46);
+            richTextBox1.TabIndex = 64;
+            richTextBox1.Text = "Rotate you EDTracker in all axis until values no longer change.";
+            // 
+            // magForm
+            // 
+            AutoScaleDimensions = new SizeF(6F, 13F);
+            AutoScaleMode = AutoScaleMode.Font;
+            ClientSize = new Size(245, 207);
+            Controls.Add(richTextBox1);
+            FormBorderStyle = FormBorderStyle.FixedToolWindow;
+            Margin = new Padding(4, 5, 4, 5);
+            MaximizeBox = false;
+            MinimizeBox = false;
+            Name = "magForm";
+            ShowIcon = false;
+            ShowInTaskbar = false;
+            Text = "Magnetometer Calibration";
+            ResumeLayout(false);
+        }
     }
-  }
 }

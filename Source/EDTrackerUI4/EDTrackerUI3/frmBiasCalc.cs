@@ -67,7 +67,6 @@ namespace EDTrackerUI3
       this.Controls.Add((Control) this.button1);
       this.Controls.Add((Control) this.biasProgress);
       this.FormBorderStyle = FormBorderStyle.FixedToolWindow;
-      this.Name = nameof (frmBiasCalc);
       this.ShowIcon = false;
       this.ShowInTaskbar = false;
       this.Text = "Calculating Bias Values";
