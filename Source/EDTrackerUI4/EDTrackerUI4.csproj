@@ -31,6 +31,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
+    <PackageReference Include="SerialPortStream" Version="2.4.2" />
     <PackageReference Include="System.IO.Ports" Version="8.0.0" />
     <PackageReference Include="System.Management" Version="8.0.0" />
   </ItemGroup>
@@ -43,6 +44,7 @@
     <Folder Include="Properties\" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\ArduinoUploader\ArduinoUploader.csproj" />
     <ProjectReference Include="..\EDTrackerWpfControls\EDTrackerWpfControls.csproj" />
   </ItemGroup>
 </Project>

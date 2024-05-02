@@ -18,7 +18,6 @@ using System.Globalization;
 using System.IO;
 using System.IO.Ports;
 using System.Linq;
-using System.Management;
 using System.Net;
 using System.Threading;
 using System.Windows;
@@ -27,7 +26,6 @@ using System.Windows.Forms.Integration;
 using System.Windows.Media.Media3D;
 using System.Xml;
 using System.Xml.Serialization;
-using TestFetchXMLandHex;
 
 #nullable disable
 namespace EDTrackerUI3
@@ -327,6 +325,12 @@ namespace EDTrackerUI3
             this.buffPanel2.Paint += new PaintEventHandler(this.panel2_Paint);
             this.Controls.Add((Control)this.buffPanel2);
             this.InitializeComponent();
+
+            edtracker1 = new EDTrackerWpfControls.HeadTracker();
+            elementHost1.Child = (UIElement)this.edtracker1;
+            magCloud1 = new EDTrackerWpfControls.MagCloud();
+            elementHost2.Child = (UIElement)this.magCloud1;
+
             this.tabPage1.Controls.Add((Control)this.buffPanel1);
             this.tabPage2.Enter += new EventHandler(this.tabPage2_Enter);
             this.tabPage1.Enter += new EventHandler(this.tabPage1_Enter);
@@ -380,7 +384,7 @@ namespace EDTrackerUI3
             this.menuItem1 = new ToolStripMenuItem();
             this.contextMenu1.Items.AddRange(new ToolStripMenuItem[1]
             {
-        this.menuItem1
+                this.menuItem1
             });
             //this.menuItem1.Index = 0;
             this.menuItem1.Text = "E&xit";
@@ -530,17 +534,20 @@ namespace EDTrackerUI3
         private void scanForTracker(object sender, EventArgs e)
         {
             this.cbPort.Items.Clear();
-            foreach (object portName in SerialPort.GetPortNames())
+            //            foreach (object portName in SerialPortStream.GetPortNames())
+            foreach (object portName in RJCP.IO.Ports.SerialPortStream.GetPortNames())
                 this.cbPort.Items.Add(portName);
         }
 
         private void scanForPortsWorker_DoWork(object sender, DoWorkEventArgs e)
         {
-            using (ManagementObjectSearcher managementObjectSearcher = new ManagementObjectSearcher("SELECT * FROM WIN32_SerialPort"))
+            var desc = RJCP.IO.Ports.SerialPortStream.GetPortDescriptions();
+            var list = new List<string>();
+            foreach (RJCP.IO.Ports.PortDescription description in desc)
             {
-                List<string> list = ((IEnumerable<string>)SerialPort.GetPortNames()).Join<string, ManagementBaseObject, string, string>((IEnumerable<ManagementBaseObject>)managementObjectSearcher.Get().Cast<ManagementBaseObject>().ToList<ManagementBaseObject>(), (Func<string, string>)(n => n), (Func<ManagementBaseObject, string>)(p => p["DeviceID"].ToString()), (Func<string, ManagementBaseObject, string>)((n, p) => n + " - " + p["Caption"])).ToList<string>();
-                e.Result = (object)list;
+                list.Add($"{description.Port} - {description.Description}");
             }
+            e.Result = (object)list;
         }
 
         private void scanForPortsWorker_RunWorkerCompleted(object sender, RunWorkerCompletedEventArgs e)
@@ -873,11 +880,11 @@ namespace EDTrackerUI3
                     this.disconnectArduino();
                 string port = this.cbPort.Text.Substring(0, this.cbPort.Text.IndexOf(' '));
                 bool isBootloader = this.cbPort.Text.IndexOf("bootloader") >= 0;
-                WebClient webClient = new WebClient();
                 try
                 {
                     string hexfile = Form1.hexfiles[this.cbSketches.SelectedIndex];
-                    flashDialog flashDialog = new flashDialog(IntelHexUtils.extractHexData(webClient.DownloadString(hexfile)), port, isBootloader);
+                    flashDialog flashDialog = new flashDialog(hexfile, port, isBootloader);
+                    //flashDialog flashDialog = new flashDialog(IntelHexUtils.extractHexData(webClient.DownloadString(hexfile)), port, isBootloader);
                     flashDialog.StartPosition = FormStartPosition.CenterParent;
                     int num2 = (int)flashDialog.ShowDialog();
                     Thread.Sleep(200);
@@ -952,370 +959,374 @@ namespace EDTrackerUI3
             return Math.Abs(v) > h ? System.Drawing.Color.Red : System.Drawing.Color.LightYellow;
         }
 
+        private static object _lock = new object();
         private void processArduinoData(string datain)
         {
-            if (datain.Length == 0)
-                return;
-            char ch = datain[0];
-            try
+            lock (_lock)
             {
-                switch (ch)
+                if (datain.Length == 0)
+                    return;
+                char ch = datain[0];
+                try
                 {
-                    case 'H':
-                        Form1.myState = Form1.myStateType.CONNECTED;
-                        this.tbMonitor.Text = "CONNECTED";
-                        this.ardPort.DiscardOutBuffer();
-                        this.ardPort.Write("V");
-                        Thread.Sleep(300);
-                        this.ardPort.Write("I");
-                        Thread.Sleep(100);
-                        break;
-                    case 'S':
-                        break;
-                    case 'V':
-                        this.setMyState(Form1.myStateType.MONITORING);
-                        break;
-                    case 'a':
-                        this.adjustX = this.adjustY = this.adjustZ = 1;
-                        break;
-                    case 'h':
-                        Form1.myState = Form1.myStateType.CONNECTED;
-                        this.tbMonitor.Text = "CONNECTED";
-                        this.waitForCalibToFinish();
-                        break;
-                    case 'x':
-                        this.adjustX = 1;
-                        this.adjustY = this.adjustZ = 0;
-                        break;
-                    case 'y':
-                        this.adjustY = 1;
-                        this.adjustX = this.adjustZ = 0;
-                        break;
-                    case 'z':
-                        this.adjustX = this.adjustY = 0;
-                        this.adjustZ = 1;
-                        break;
-                    default:
-                        string[] strArray = datain.Split('\t');
-                        if (strArray[0].Equals("M"))
-                        {
-                            this.logMessage(strArray[1]);
+                    switch (ch)
+                    {
+                        case 'H':
+                            Form1.myState = Form1.myStateType.CONNECTED;
+                            this.tbMonitor.Text = "CONNECTED";
+                            this.ardPort.DiscardOutBuffer();
+                            this.ardPort.Write("V");
+                            Thread.Sleep(300);
+                            this.ardPort.Write("I");
+                            Thread.Sleep(100);
                             break;
-                        }
-                        if (strArray[0].Equals("q"))
-                        {
-                            float.TryParse(strArray[1], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out this.magOffsets[0]);
-                            float.TryParse(strArray[2], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out this.magOffsets[1]);
-                            float.TryParse(strArray[3], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out this.magOffsets[2]);
-                            double result;
-                            double.TryParse(strArray[4], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out result);
-                            this.rawMagCalibMatrix[0, 0] = result;
-                            double.TryParse(strArray[5], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out result);
-                            this.rawMagCalibMatrix[0, 1] = result;
-                            double.TryParse(strArray[6], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out result);
-                            this.rawMagCalibMatrix[0, 2] = result;
-                            double.TryParse(strArray[7], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out result);
-                            this.rawMagCalibMatrix[1, 0] = result;
-                            double.TryParse(strArray[8], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out result);
-                            this.rawMagCalibMatrix[1, 1] = result;
-                            double.TryParse(strArray[9], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out result);
-                            this.rawMagCalibMatrix[1, 2] = result;
-                            double.TryParse(strArray[10], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out result);
-                            this.rawMagCalibMatrix[2, 0] = result;
-                            double.TryParse(strArray[11], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out result);
-                            this.rawMagCalibMatrix[2, 1] = result;
-                            double.TryParse(strArray[12], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out result);
-                            this.rawMagCalibMatrix[2, 2] = result;
-                            this.tbOffX.Text = strArray[1].Substring(0, 5);
-                            this.tbOffY.Text = strArray[2].Substring(0, 5);
-                            this.tbOffZ.Text = strArray[3].Substring(0, 5);
-                            this.tbMagMat1.Text = strArray[4].Substring(0, 4);
-                            this.tbMagMat2.Text = strArray[5].Substring(0, 4);
-                            this.tbMagMat3.Text = strArray[6].Substring(0, 4);
-                            this.tbMagMat4.Text = strArray[7].Substring(0, 4);
-                            this.tbMagMat5.Text = strArray[8].Substring(0, 4);
-                            this.tbMagMat6.Text = strArray[9].Substring(0, 4);
-                            this.tbMagMat7.Text = strArray[10].Substring(0, 4);
-                            this.tbMagMat8.Text = strArray[11].Substring(0, 4);
-                            this.tbMagMat9.Text = strArray[12].Substring(0, 4);
-                            this.logMessage("Raw Mag Calib Data " + datain);
+                        case 'S':
                             break;
-                        }
-                        if (strArray[0].Equals("Q"))
-                        {
-                            this.magPoints[this.magSamples].X = (double)float.Parse(strArray[1]);
-                            this.magPoints[this.magSamples].Y = (double)float.Parse(strArray[2]);
-                            this.magPoints[this.magSamples].Z = (double)float.Parse(strArray[3]);
-                            this.minMagX = Math.Min(this.minMagX, this.magPoints[this.magSamples].X);
-                            this.maxMagX = Math.Max(this.maxMagX, this.magPoints[this.magSamples].X);
-                            this.minMagY = Math.Min(this.minMagY, this.magPoints[this.magSamples].Y);
-                            this.maxMagY = Math.Max(this.maxMagY, this.magPoints[this.magSamples].Y);
-                            this.minMagZ = Math.Min(this.minMagZ, this.magPoints[this.magSamples].Z);
-                            this.maxMagZ = Math.Max(this.maxMagZ, this.magPoints[this.magSamples].Z);
-                            this.tbMinX.Text = this.minMagX.ToString();
-                            this.tbMaxX.Text = this.maxMagX.ToString();
-                            this.tbMinY.Text = this.minMagY.ToString();
-                            this.tbMaxY.Text = this.maxMagY.ToString();
-                            this.tbMinZ.Text = this.minMagZ.ToString();
-                            this.tbMaxZ.Text = this.maxMagZ.ToString();
-                            if (this.magSamplesHWM > 0)
+                        case 'V':
+                            this.setMyState(Form1.myStateType.MONITORING);
+                            break;
+                        case 'a':
+                            this.adjustX = this.adjustY = this.adjustZ = 1;
+                            break;
+                        case 'h':
+                            Form1.myState = Form1.myStateType.CONNECTED;
+                            this.tbMonitor.Text = "CONNECTED";
+                            this.waitForCalibToFinish();
+                            break;
+                        case 'x':
+                            this.adjustX = 1;
+                            this.adjustY = this.adjustZ = 0;
+                            break;
+                        case 'y':
+                            this.adjustY = 1;
+                            this.adjustX = this.adjustZ = 0;
+                            break;
+                        case 'z':
+                            this.adjustX = this.adjustY = 0;
+                            this.adjustZ = 1;
+                            break;
+                        default:
+                            string[] strArray = datain.Split('\t');
+                            if (strArray[0].Equals("M"))
                             {
-                                int index = this.magSamples - 1;
-                                if (index < 0)
-                                    index = 1999;
-                                if (Vector3D.AngleBetween(new Vector3D(this.magPoints[this.magSamples].X, this.magPoints[this.magSamples].Y, this.magPoints[this.magSamples].Z), new Vector3D(this.magPoints[index].X, this.magPoints[index].Y, this.magPoints[index].Z)) > (double)this.magSensitivity)
+                                this.logMessage(strArray[1]);
+                                break;
+                            }
+                            if (strArray[0].Equals("q"))
+                            {
+                                float.TryParse(strArray[1], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out this.magOffsets[0]);
+                                float.TryParse(strArray[2], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out this.magOffsets[1]);
+                                float.TryParse(strArray[3], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out this.magOffsets[2]);
+                                double result;
+                                double.TryParse(strArray[4], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out result);
+                                this.rawMagCalibMatrix[0, 0] = result;
+                                double.TryParse(strArray[5], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out result);
+                                this.rawMagCalibMatrix[0, 1] = result;
+                                double.TryParse(strArray[6], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out result);
+                                this.rawMagCalibMatrix[0, 2] = result;
+                                double.TryParse(strArray[7], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out result);
+                                this.rawMagCalibMatrix[1, 0] = result;
+                                double.TryParse(strArray[8], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out result);
+                                this.rawMagCalibMatrix[1, 1] = result;
+                                double.TryParse(strArray[9], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out result);
+                                this.rawMagCalibMatrix[1, 2] = result;
+                                double.TryParse(strArray[10], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out result);
+                                this.rawMagCalibMatrix[2, 0] = result;
+                                double.TryParse(strArray[11], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out result);
+                                this.rawMagCalibMatrix[2, 1] = result;
+                                double.TryParse(strArray[12], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out result);
+                                this.rawMagCalibMatrix[2, 2] = result;
+                                this.tbOffX.Text = strArray[1].Substring(0, 5);
+                                this.tbOffY.Text = strArray[2].Substring(0, 5);
+                                this.tbOffZ.Text = strArray[3].Substring(0, 5);
+                                this.tbMagMat1.Text = strArray[4].Substring(0, 4);
+                                this.tbMagMat2.Text = strArray[5].Substring(0, 4);
+                                this.tbMagMat3.Text = strArray[6].Substring(0, 4);
+                                this.tbMagMat4.Text = strArray[7].Substring(0, 4);
+                                this.tbMagMat5.Text = strArray[8].Substring(0, 4);
+                                this.tbMagMat6.Text = strArray[9].Substring(0, 4);
+                                this.tbMagMat7.Text = strArray[10].Substring(0, 4);
+                                this.tbMagMat8.Text = strArray[11].Substring(0, 4);
+                                this.tbMagMat9.Text = strArray[12].Substring(0, 4);
+                                this.logMessage("Raw Mag Calib Data " + datain);
+                                break;
+                            }
+                            if (strArray[0].Equals("Q"))
+                            {
+                                this.magPoints[this.magSamples].X = (double)float.Parse(strArray[1]);
+                                this.magPoints[this.magSamples].Y = (double)float.Parse(strArray[2]);
+                                this.magPoints[this.magSamples].Z = (double)float.Parse(strArray[3]);
+                                this.minMagX = Math.Min(this.minMagX, this.magPoints[this.magSamples].X);
+                                this.maxMagX = Math.Max(this.maxMagX, this.magPoints[this.magSamples].X);
+                                this.minMagY = Math.Min(this.minMagY, this.magPoints[this.magSamples].Y);
+                                this.maxMagY = Math.Max(this.maxMagY, this.magPoints[this.magSamples].Y);
+                                this.minMagZ = Math.Min(this.minMagZ, this.magPoints[this.magSamples].Z);
+                                this.maxMagZ = Math.Max(this.maxMagZ, this.magPoints[this.magSamples].Z);
+                                this.tbMinX.Text = this.minMagX.ToString();
+                                this.tbMaxX.Text = this.maxMagX.ToString();
+                                this.tbMinY.Text = this.minMagY.ToString();
+                                this.tbMaxY.Text = this.maxMagY.ToString();
+                                this.tbMinZ.Text = this.minMagZ.ToString();
+                                this.tbMaxZ.Text = this.maxMagZ.ToString();
+                                if (this.magSamplesHWM > 0)
+                                {
+                                    int index = this.magSamples - 1;
+                                    if (index < 0)
+                                        index = 1999;
+                                    if (Vector3D.AngleBetween(new Vector3D(this.magPoints[this.magSamples].X, this.magPoints[this.magSamples].Y, this.magPoints[this.magSamples].Z), new Vector3D(this.magPoints[index].X, this.magPoints[index].Y, this.magPoints[index].Z)) > (double)this.magSensitivity)
+                                        ++this.magSamples;
+                                }
+                                else
                                     ++this.magSamples;
-                            }
-                            else
-                                ++this.magSamples;
-                            if (this.magSamplesHWM >= 500)
-                                this.btSave.Enabled = true;
-                            else
-                                this.btSave.Enabled = false;
-                            if (this.magSamples >= 2000)
-                                this.magSamples = 0;
-                            if (this.magSamples > this.magSamplesHWM)
-                                this.magSamplesHWM = this.magSamples;
-                            this.tbMagSamples.Text = this.magSamplesHWM.ToString();
-                            break;
-                        }
-                        if (strArray[0].Equals("s"))
-                        {
-                            int result = 0;
-                            int.TryParse(strArray[1].Trim(), out result);
-                            this.expScaleMode = result == 1;
-                            float.TryParse(strArray[2], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out this.yawScale);
-                            float.TryParse(strArray[3], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out this.pitchScale);
-                            this.outputLPF = strArray.Length < 5 ? 0.0f : float.Parse(strArray[4], (IFormatProvider)CultureInfo.InvariantCulture) * 100f;
-                            this.tbYawScaling.Text = this.yawScale.ToString("0.00");
-                            this.tbPitchScaling.Text = this.pitchScale.ToString("0.00");
-                            this.sliderSmoothing.Value = (int)Math.Min((double)this.outputLPF, 99.0);
-                            this.tbSmoothing.Text = this.sliderSmoothing.Value.ToString();
-                            if (this.expScaleMode)
-                                this.tbRespMode.Text = "Exponential";
-                            else
-                                this.tbRespMode.Text = "Linear";
-                            this.logMessage("Scale Mode/Values " + datain);
-                            break;
-                        }
-                        if (strArray[0].Equals("p"))
-                        {
-                            this.pollMPU = int.Parse(strArray[1].Trim()) == 1;
-                            if (this.pollMPU)
-                            {
-                                this.tbSensorMode.Text = "Polling";
+                                if (this.magSamplesHWM >= 500)
+                                    this.btSave.Enabled = true;
+                                else
+                                    this.btSave.Enabled = false;
+                                if (this.magSamples >= 2000)
+                                    this.magSamples = 0;
+                                if (this.magSamples > this.magSamplesHWM)
+                                    this.magSamplesHWM = this.magSamples;
+                                this.tbMagSamples.Text = this.magSamplesHWM.ToString();
                                 break;
                             }
-                            this.tbSensorMode.Text = "Interrupt";
-                            break;
-                        }
-                        if (strArray[0].Equals("#"))
-                        {
-                            this.autocentre = int.Parse(strArray[1].Trim());
-                            if (this.autocentre == 0)
-                                this.tbAutoCentre.Text = "Off";
-                            else if (this.autocentre == 1)
-                                this.tbAutoCentre.Text = "Soft";
-                            else if (this.autocentre == 2)
-                                this.tbAutoCentre.Text = "Medium";
-                            else
-                                this.tbAutoCentre.Text = "Strong";
-                            this.lastSelectAutoCentreOption = this.tbAutoCentre.Text;
-                            break;
-                        }
-                        if (strArray[0].Equals("I"))
-                        {
-                            if (this.waitingForBias && this.fCalBias != null)
+                            if (strArray[0].Equals("s"))
                             {
-                                this.fCalBias.stopProg();
-                                this.fCalBias.Hide();
+                                int result = 0;
+                                int.TryParse(strArray[1].Trim(), out result);
+                                this.expScaleMode = result == 1;
+                                float.TryParse(strArray[2], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out this.yawScale);
+                                float.TryParse(strArray[3], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out this.pitchScale);
+                                this.outputLPF = strArray.Length < 5 ? 0.0f : float.Parse(strArray[4], (IFormatProvider)CultureInfo.InvariantCulture) * 100f;
+                                this.tbYawScaling.Text = this.yawScale.ToString("0.00");
+                                this.tbPitchScaling.Text = this.pitchScale.ToString("0.00");
+                                this.sliderSmoothing.Value = (int)Math.Min((double)this.outputLPF, 99.0);
+                                this.tbSmoothing.Text = this.sliderSmoothing.Value.ToString();
+                                if (this.expScaleMode)
+                                    this.tbRespMode.Text = "Exponential";
+                                else
+                                    this.tbRespMode.Text = "Linear";
+                                this.logMessage("Scale Mode/Values " + datain);
+                                break;
                             }
-                            this.waitingForBias = false;
-                            this.info = strArray[1].Substring(0, strArray[1].Length - 1);
-                            this.tbSketch.Text = this.info;
-                            this.setButtonStates();
-                            this.logMessage("Info " + datain);
-                            break;
-                        }
-                        if (strArray[0].Equals("D"))
-                        {
-                            if (this.waitingForBias && this.fCalBias != null)
+                            if (strArray[0].Equals("p"))
                             {
-                                this.fCalBias.stopProg();
-                                this.fCalBias.Hide();
+                                this.pollMPU = int.Parse(strArray[1].Trim()) == 1;
+                                if (this.pollMPU)
+                                {
+                                    this.tbSensorMode.Text = "Polling";
+                                    break;
+                                }
+                                this.tbSensorMode.Text = "Interrupt";
+                                break;
                             }
-                            this.waitingForBias = false;
-                            float.TryParse(strArray[1], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out this.yawDrift);
-                            float.TryParse(strArray[2], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out this.yawDriftComp);
-                            for (int index = 0; index < 314; ++index)
-                                this.yawDriftHist[index].Y = this.yawDriftHist[index + 1].Y;
-                            this.yawDriftHist[314].Y = (int)((double)this.yawDrift * -80.0) + 72;
-                            this.tbYawDrift.Text = this.yawDrift.ToString("0.00");
-                            if ((double)Math.Abs(this.yawDrift) < 0.15)
-                                this.tbYawDrift.BackColor = System.Drawing.Color.PaleGreen;
-                            else if ((double)Math.Abs(this.yawDrift) > 0.5)
-                                this.tbYawDrift.BackColor = System.Drawing.Color.Red;
-                            else
-                                this.tbYawDrift.BackColor = System.Drawing.Color.Yellow;
-                            this.tbDriftComp.Text = this.yawDriftComp.ToString("0.00");
-                            break;
-                        }
-                        if (strArray[0].Equals("T"))
-                        {
-                            if ((double)this.startTemp == 0.0)
+                            if (strArray[0].Equals("#"))
                             {
-                                this.temperature = float.Parse(strArray[1]) / 65536f;
-                                this.startTemp = this.temperature;
+                                this.autocentre = int.Parse(strArray[1].Trim());
+                                if (this.autocentre == 0)
+                                    this.tbAutoCentre.Text = "Off";
+                                else if (this.autocentre == 1)
+                                    this.tbAutoCentre.Text = "Soft";
+                                else if (this.autocentre == 2)
+                                    this.tbAutoCentre.Text = "Medium";
+                                else
+                                    this.tbAutoCentre.Text = "Strong";
+                                this.lastSelectAutoCentreOption = this.tbAutoCentre.Text;
+                                break;
+                            }
+                            if (strArray[0].Equals("I"))
+                            {
+                                if (this.waitingForBias && this.fCalBias != null)
+                                {
+                                    this.fCalBias.stopProg();
+                                    this.fCalBias.Hide();
+                                }
+                                this.waitingForBias = false;
+                                this.info = strArray[1].Substring(0, strArray[1].Length - 1);
+                                this.tbSketch.Text = this.info;
+                                this.setButtonStates();
+                                this.logMessage("Info " + datain);
+                                break;
+                            }
+                            if (strArray[0].Equals("D"))
+                            {
+                                if (this.waitingForBias && this.fCalBias != null)
+                                {
+                                    this.fCalBias.stopProg();
+                                    this.fCalBias.Hide();
+                                }
+                                this.waitingForBias = false;
+                                float.TryParse(strArray[1], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out this.yawDrift);
+                                float.TryParse(strArray[2], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out this.yawDriftComp);
                                 for (int index = 0; index < 314; ++index)
-                                    this.tempHist[index].Y = (int)((double)this.startTemp * 1000.0);
-                            }
-                            else
-                                this.temperature = (float)((double)this.temperature * 0.93000000715255737 + 0.070000000298023224 * ((double)float.Parse(strArray[1]) / 65536.0));
-                            for (int index = 0; index < 314; ++index)
-                                this.tempHist[index].Y = this.tempHist[index + 1].Y;
-                            this.tempHist[314].Y = (int)((double)this.temperature * 1000.0);
-                            for (int index = 0; index < 314; ++index)
-                                this.tDeltaHist[index].Y = this.tDeltaHist[index + 1].Y;
-                            this.tempSlope = this.getSlope();
-                            this.tDeltaHist[314].Y = (double)this.tempSlope < 0.0 ? (int)(Math.Sqrt((double)Math.Abs(this.tempSlope)) * -5.0) + 36 : (int)(Math.Sqrt((double)this.tempSlope) * 5.0) + 36;
-                            this.tempSlope = Math.Abs(this.tempSlope);
-                            if (Form1.myState != Form1.myStateType.MONITORING)
-                            {
-                                this.tempStable = false;
-                                this.lbTemps.BackColor = System.Drawing.Color.Gray;
-                            }
-                            else if ((double)this.tempSlope < 0.8)
-                            {
-                                this.tempStable = true;
-                                this.lbTemps.BackColor = System.Drawing.Color.PaleGreen;
-                            }
-                            else
-                            {
-                                this.tempStable = false;
-                                this.lbTemps.BackColor = System.Drawing.Color.Pink;
-                            }
-                            this.tbTemps.Text = this.temperature.ToString("0.00");
-                            break;
-                        }
-                        if (strArray[0].Equals("O"))
-                        {
-                            switch (int.Parse(strArray[1].Trim()))
-                            {
-                                case 0:
-                                    this.orientation = "Top/USB Right";
-                                    this.orientationAngle = Math.PI;
-                                    break;
-                                case 1:
-                                    this.orientation = "Top/USB Front";
-                                    this.orientationAngle = Math.PI / 2.0;
-                                    break;
-                                case 2:
-                                    this.orientation = "Top/USB Left";
-                                    this.orientationAngle = 0.0;
-                                    break;
-                                case 3:
-                                    this.orientation = "Top/USB Rear";
-                                    this.orientationAngle = -1.0 * Math.PI / 2.0;
-                                    break;
-                                case 4:
-                                    this.orientation = "Left/USB Down";
-                                    break;
-                                default:
-                                    this.orientation = "Right/USB Down";
-                                    break;
-                            }
-                            this.tbOrientation.Text = this.orientation;
-                            this.sendMagCalibData();
-                            this.logMessage("Orientation " + datain);
-                            break;
-                        }
-                        if (strArray[0].Equals("R"))
-                        {
-                            this.yawDrift = 0.0f;
-                            this.pitchDrift = 0.0f;
-                            break;
-                        }
-                        if (strArray[0].Equals("B"))
-                        {
-                            this.gBiasX = int.Parse(strArray[1].Trim());
-                            this.gBiasY = int.Parse(strArray[2].Trim());
-                            this.gBiasZ = int.Parse(strArray[3].Trim());
-                            this.aBiasX = -1 * int.Parse(strArray[4].Trim());
-                            this.aBiasY = -1 * int.Parse(strArray[5].Trim());
-                            this.aBiasZ = -1 * int.Parse(strArray[6].Trim());
-                            this.biasGX.Text = this.gBiasX.ToString();
-                            this.biasGY.Text = this.gBiasY.ToString();
-                            this.biasGZ.Text = this.gBiasZ.ToString();
-                            this.biasAX.Text = this.aBiasX.ToString();
-                            this.biasAY.Text = this.aBiasY.ToString();
-                            this.biasAZ.Text = this.aBiasZ.ToString();
-                            break;
-                        }
-                        try
-                        {
-                            if (strArray.Length < 6)
+                                    this.yawDriftHist[index].Y = this.yawDriftHist[index + 1].Y;
+                                this.yawDriftHist[314].Y = (int)((double)this.yawDrift * -80.0) + 72;
+                                this.tbYawDrift.Text = this.yawDrift.ToString("0.00");
+                                if ((double)Math.Abs(this.yawDrift) < 0.15)
+                                    this.tbYawDrift.BackColor = System.Drawing.Color.PaleGreen;
+                                else if ((double)Math.Abs(this.yawDrift) > 0.5)
+                                    this.tbYawDrift.BackColor = System.Drawing.Color.Red;
+                                else
+                                    this.tbYawDrift.BackColor = System.Drawing.Color.Yellow;
+                                this.tbDriftComp.Text = this.yawDriftComp.ToString("0.00");
                                 break;
-                            float.TryParse(strArray[0], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out this.DMPYaw);
-                            float.TryParse(strArray[1], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out this.DMPPitch);
-                            float.TryParse(strArray[2], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out this.DMPRoll);
-                            this.DMPYaw /= 10430.06f;
-                            this.DMPPitch /= -10430.06f;
-                            this.DMPRoll /= -10430.06f;
-                            this.rawAccelX = (int)this.lpX.filter(float.Parse(strArray[3]) / 10f);
-                            this.rawAccelY = (int)this.lpY.filter(float.Parse(strArray[4]) / 10f);
-                            this.rawAccelZ = (int)this.lpZ.filter((float)(((double)float.Parse(strArray[5]) - 16383.0) / 10.0));
-                            float result;
-                            if (float.TryParse(strArray[6], out result))
-                            {
-                                result = this.gX.filter(result);
-                                this.rawGyroX = (int)((double)result * 3.0);
                             }
-                            float num1 = this.gY.filter(float.Parse(strArray[7]));
-                            this.rawGyroY = (int)((double)num1 * 3.0);
-                            float num2 = this.gZ.filter(float.Parse(strArray[8]));
-                            this.rawGyroZ = (int)((double)num2 * 3.0);
-                            this.udGX.Text = this.rawGyroX.ToString();
-                            this.udGY.Text = this.rawGyroY.ToString();
-                            this.udGZ.Text = this.rawGyroZ.ToString();
-                            this.tbGyroX.Text = (this.rawGyroX / 2).ToString();
-                            this.tbGyroY.Text = (this.rawGyroY / 2).ToString();
-                            this.tbGyroZ.Text = (this.rawGyroZ / 2).ToString();
-                            this.udAX.Text = this.rawAccelX.ToString();
-                            this.udAY.Text = this.rawAccelY.ToString();
-                            this.udAZ.Text = this.rawAccelZ.ToString();
-                            this.biasGX.BackColor = this.V2RGB(this.rawGyroX, 2, 5);
-                            this.biasGY.BackColor = this.V2RGB(this.rawGyroY, 2, 5);
-                            this.biasGZ.BackColor = this.V2RGB(this.rawGyroZ, 2, 5);
-                            this.tbGyroX.BackColor = this.V2RGB(this.rawGyroX, 4, 10);
-                            this.tbGyroY.BackColor = this.V2RGB(this.rawGyroY, 4, 10);
-                            this.tbGyroZ.BackColor = this.V2RGB(this.rawGyroZ, 4, 10);
-                            this.biasAX.BackColor = this.V2RGB(this.rawAccelX, 4, 10);
-                            this.biasAY.BackColor = this.V2RGB(this.rawAccelY, 4, 10);
-                            this.biasAZ.BackColor = this.V2RGB(this.rawAccelZ, 4, 10);
-                            this.edtracker1.rotateHead(this.DMPYaw * this.rad2deg, (float)((double)this.DMPPitch * (double)this.rad2deg - 90.0));
-                            for (int index = 0; index < 314; ++index)
+                            if (strArray[0].Equals("T"))
                             {
-                                this.pitchHist[index].Y = this.pitchHist[index + 1].Y;
-                                this.yawHist[index].Y = this.yawHist[index + 1].Y;
-                                this.gyroXHist[index].Y = this.gyroXHist[index + 1].Y;
-                                this.gyroYHist[index].Y = this.gyroYHist[index + 1].Y;
-                                this.gyroZHist[index].Y = this.gyroZHist[index + 1].Y;
+                                if ((double)this.startTemp == 0.0)
+                                {
+                                    this.temperature = float.Parse(strArray[1]) / 65536f;
+                                    this.startTemp = this.temperature;
+                                    for (int index = 0; index < 314; ++index)
+                                        this.tempHist[index].Y = (int)((double)this.startTemp * 1000.0);
+                                }
+                                else
+                                    this.temperature = (float)((double)this.temperature * 0.93000000715255737 + 0.070000000298023224 * ((double)float.Parse(strArray[1]) / 65536.0));
+                                for (int index = 0; index < 314; ++index)
+                                    this.tempHist[index].Y = this.tempHist[index + 1].Y;
+                                this.tempHist[314].Y = (int)((double)this.temperature * 1000.0);
+                                for (int index = 0; index < 314; ++index)
+                                    this.tDeltaHist[index].Y = this.tDeltaHist[index + 1].Y;
+                                this.tempSlope = this.getSlope();
+                                this.tDeltaHist[314].Y = (double)this.tempSlope < 0.0 ? (int)(Math.Sqrt((double)Math.Abs(this.tempSlope)) * -5.0) + 36 : (int)(Math.Sqrt((double)this.tempSlope) * 5.0) + 36;
+                                this.tempSlope = Math.Abs(this.tempSlope);
+                                if (Form1.myState != Form1.myStateType.MONITORING)
+                                {
+                                    this.tempStable = false;
+                                    this.lbTemps.BackColor = System.Drawing.Color.Gray;
+                                }
+                                else if ((double)this.tempSlope < 0.8)
+                                {
+                                    this.tempStable = true;
+                                    this.lbTemps.BackColor = System.Drawing.Color.PaleGreen;
+                                }
+                                else
+                                {
+                                    this.tempStable = false;
+                                    this.lbTemps.BackColor = System.Drawing.Color.Pink;
+                                }
+                                this.tbTemps.Text = this.temperature.ToString("0.00");
+                                break;
                             }
-                            this.pitchHist[314].Y = (int)((double)this.DMPPitch * 10.0) + 144;
-                            this.yawHist[314].Y = (int)((double)this.DMPYaw * 100.0) + 108;
-                            this.gyroXHist[314].Y = (int)((double)result * -20.0) + 72;
-                            this.gyroYHist[314].Y = (int)((double)num1 * -20.0) + 108;
-                            this.gyroZHist[314].Y = (int)((double)num2 * -20.0) + 144;
-                            break;
-                        }
-                        catch (Exception ex)
-                        {
-                            break;
-                        }
+                            if (strArray[0].Equals("O"))
+                            {
+                                switch (int.Parse(strArray[1].Trim()))
+                                {
+                                    case 0:
+                                        this.orientation = "Top/USB Right";
+                                        this.orientationAngle = Math.PI;
+                                        break;
+                                    case 1:
+                                        this.orientation = "Top/USB Front";
+                                        this.orientationAngle = Math.PI / 2.0;
+                                        break;
+                                    case 2:
+                                        this.orientation = "Top/USB Left";
+                                        this.orientationAngle = 0.0;
+                                        break;
+                                    case 3:
+                                        this.orientation = "Top/USB Rear";
+                                        this.orientationAngle = -1.0 * Math.PI / 2.0;
+                                        break;
+                                    case 4:
+                                        this.orientation = "Left/USB Down";
+                                        break;
+                                    default:
+                                        this.orientation = "Right/USB Down";
+                                        break;
+                                }
+                                this.tbOrientation.Text = this.orientation;
+                                this.sendMagCalibData();
+                                this.logMessage("Orientation " + datain);
+                                break;
+                            }
+                            if (strArray[0].Equals("R"))
+                            {
+                                this.yawDrift = 0.0f;
+                                this.pitchDrift = 0.0f;
+                                break;
+                            }
+                            if (strArray[0].Equals("B"))
+                            {
+                                this.gBiasX = int.Parse(strArray[1].Trim());
+                                this.gBiasY = int.Parse(strArray[2].Trim());
+                                this.gBiasZ = int.Parse(strArray[3].Trim());
+                                this.aBiasX = -1 * int.Parse(strArray[4].Trim());
+                                this.aBiasY = -1 * int.Parse(strArray[5].Trim());
+                                this.aBiasZ = -1 * int.Parse(strArray[6].Trim());
+                                this.biasGX.Text = this.gBiasX.ToString();
+                                this.biasGY.Text = this.gBiasY.ToString();
+                                this.biasGZ.Text = this.gBiasZ.ToString();
+                                this.biasAX.Text = this.aBiasX.ToString();
+                                this.biasAY.Text = this.aBiasY.ToString();
+                                this.biasAZ.Text = this.aBiasZ.ToString();
+                                break;
+                            }
+                            try
+                            {
+                                if (strArray.Length < 6)
+                                    break;
+                                float.TryParse(strArray[0], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out this.DMPYaw);
+                                float.TryParse(strArray[1], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out this.DMPPitch);
+                                float.TryParse(strArray[2], NumberStyles.Any, (IFormatProvider)CultureInfo.InvariantCulture, out this.DMPRoll);
+                                this.DMPYaw /= 10430.06f;
+                                this.DMPPitch /= -10430.06f;
+                                this.DMPRoll /= -10430.06f;
+                                this.rawAccelX = (int)this.lpX.filter(float.Parse(strArray[3]) / 10f);
+                                this.rawAccelY = (int)this.lpY.filter(float.Parse(strArray[4]) / 10f);
+                                this.rawAccelZ = (int)this.lpZ.filter((float)(((double)float.Parse(strArray[5]) - 16383.0) / 10.0));
+                                float result;
+                                if (float.TryParse(strArray[6], out result))
+                                {
+                                    result = this.gX.filter(result);
+                                    this.rawGyroX = (int)((double)result * 3.0);
+                                }
+                                float num1 = this.gY.filter(float.Parse(strArray[7]));
+                                this.rawGyroY = (int)((double)num1 * 3.0);
+                                float num2 = this.gZ.filter(float.Parse(strArray[8]));
+                                this.rawGyroZ = (int)((double)num2 * 3.0);
+                                this.udGX.Text = this.rawGyroX.ToString();
+                                this.udGY.Text = this.rawGyroY.ToString();
+                                this.udGZ.Text = this.rawGyroZ.ToString();
+                                this.tbGyroX.Text = (this.rawGyroX / 2).ToString();
+                                this.tbGyroY.Text = (this.rawGyroY / 2).ToString();
+                                this.tbGyroZ.Text = (this.rawGyroZ / 2).ToString();
+                                this.udAX.Text = this.rawAccelX.ToString();
+                                this.udAY.Text = this.rawAccelY.ToString();
+                                this.udAZ.Text = this.rawAccelZ.ToString();
+                                this.biasGX.BackColor = this.V2RGB(this.rawGyroX, 2, 5);
+                                this.biasGY.BackColor = this.V2RGB(this.rawGyroY, 2, 5);
+                                this.biasGZ.BackColor = this.V2RGB(this.rawGyroZ, 2, 5);
+                                this.tbGyroX.BackColor = this.V2RGB(this.rawGyroX, 4, 10);
+                                this.tbGyroY.BackColor = this.V2RGB(this.rawGyroY, 4, 10);
+                                this.tbGyroZ.BackColor = this.V2RGB(this.rawGyroZ, 4, 10);
+                                this.biasAX.BackColor = this.V2RGB(this.rawAccelX, 4, 10);
+                                this.biasAY.BackColor = this.V2RGB(this.rawAccelY, 4, 10);
+                                this.biasAZ.BackColor = this.V2RGB(this.rawAccelZ, 4, 10);
+                                this.edtracker1.rotateHead(this.DMPYaw * this.rad2deg, (float)((double)this.DMPPitch * (double)this.rad2deg - 90.0));
+                                for (int index = 0; index < 314; ++index)
+                                {
+                                    this.pitchHist[index].Y = this.pitchHist[index + 1].Y;
+                                    this.yawHist[index].Y = this.yawHist[index + 1].Y;
+                                    this.gyroXHist[index].Y = this.gyroXHist[index + 1].Y;
+                                    this.gyroYHist[index].Y = this.gyroYHist[index + 1].Y;
+                                    this.gyroZHist[index].Y = this.gyroZHist[index + 1].Y;
+                                }
+                                this.pitchHist[314].Y = (int)((double)this.DMPPitch * 10.0) + 144;
+                                this.yawHist[314].Y = (int)((double)this.DMPYaw * 100.0) + 108;
+                                this.gyroXHist[314].Y = (int)((double)result * -20.0) + 72;
+                                this.gyroYHist[314].Y = (int)((double)num1 * -20.0) + 108;
+                                this.gyroZHist[314].Y = (int)((double)num2 * -20.0) + 144;
+                                break;
+                            }
+                            catch (Exception ex)
+                            {
+                                break;
+                            }
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
+                catch (Exception ex)
+                {
+                }
             }
         }
 
@@ -2125,1695 +2136,2083 @@ namespace EDTrackerUI3
 
         private void InitializeComponent()
         {
-            this.components = (IContainer)new System.ComponentModel.Container();
-            ComponentResourceManager componentResourceManager = new ComponentResourceManager(typeof(Form1));
-            this.bWipeAll = new Button();
-            this.cbSketches = new ComboBox();
-            this.cbPort = new ComboBox();
-            this.bFlash = new Button();
-            this.groupBox1 = new GroupBox();
-            this.bScanPorts = new Button();
-            this.bMonitor = new Button();
-            this.gbBias = new GroupBox();
-            this.biasAX = new TextBox();
-            this.axminus = new Button();
-            this.axplus = new Button();
-            this.udAX = new TextBox();
-            this.label5 = new Label();
-            this.biasAY = new TextBox();
-            this.ayminus = new Button();
-            this.ayplus = new Button();
-            this.udAY = new TextBox();
-            this.label6 = new Label();
-            this.biasAZ = new TextBox();
-            this.azminus = new Button();
-            this.azplus = new Button();
-            this.udAZ = new TextBox();
-            this.label7 = new Label();
-            this.biasGZ = new TextBox();
-            this.gzminus = new Button();
-            this.gzplus = new Button();
-            this.udGZ = new TextBox();
-            this.label4 = new Label();
-            this.biasGY = new TextBox();
-            this.gyminus = new Button();
-            this.gyplus = new Button();
-            this.udGY = new TextBox();
-            this.label3 = new Label();
-            this.biasGX = new TextBox();
-            this.gxminus = new Button();
-            this.udGX = new TextBox();
-            this.gxplus = new Button();
-            this.label2 = new Label();
-            this.bCalcBias = new Button();
-            this.gbHotKey = new GroupBox();
-            this.btEnableAC = new Button();
-            this.tbAutoCentre = new TextBox();
-            this.btToggleAutoCentre = new Button();
-            this.cbHKey = new ComboBox();
-            this.cbCOntrollerButtons = new ComboBox();
-            this.cbControllerButton = new CheckBox();
-            this.cbHotKey = new CheckBox();
-            this.gbTrackerConfig = new GroupBox();
-            this.bOrientate = new Button();
-            this.tbOrientation = new TextBox();
-            this.bSensorMode = new Button();
-            this.tbSensorMode = new TextBox();
-            this.tbSketch = new TextBox();
-            this.gbDriftComp = new GroupBox();
-            this.lbTimer = new Label();
-            this.tbTime = new TextBox();
-            this.bSaveDriftComp = new Button();
-            this.bResetView = new Button();
-            this.tbDriftComp = new TextBox();
-            this.lbComp = new Label();
-            this.tbYawDrift = new TextBox();
-            this.lbYawDrift = new Label();
-            this.btCompDown = new Button();
-            this.btCompUp = new Button();
-            this.gbScaling = new GroupBox();
-            this.tbSmoothing = new TextBox();
-            this.lbSmooth = new Label();
-            this.sliderSmoothing = new TrackBar();
-            this.tbRespMode = new TextBox();
-            this.bRespMode = new Button();
-            this.tbPitchScaling = new TextBox();
-            this.label11 = new Label();
-            this.tbYawScaling = new TextBox();
-            this.label10 = new Label();
-            this.cbFineAdjust = new CheckBox();
-            this.btYawScaleDown = new Button();
-            this.btPitchScaleDown = new Button();
-            this.btPitchScaleUp = new Button();
-            this.btYawScaleUp = new Button();
-            this.tbTemps = new TextBox();
-            this.lbTemps = new Label();
-            this.tbMonitor = new TextBox();
-            this.notifyIcon1 = new NotifyIcon(this.components);
-            this.lbAxis4 = new Label();
-            this.lbAxis3 = new Label();
-            this.lbAxis2 = new Label();
-            this.lbAxis1 = new Label();
-            this.menuStrip1 = new MenuStrip();
-            this.toolStripMenuItem1 = new ToolStripMenuItem();
-            this.aboutToolStripMenuItem = new ToolStripMenuItem();
-            this.modeToolStripMenuItem = new ToolStripMenuItem();
-            this.uSERToolStripMenuItem = new ToolStripMenuItem();
-            this.tESTToolStripMenuItem = new ToolStripMenuItem();
-            this.dEVToolStripMenuItem = new ToolStripMenuItem();
-            this.Help = new ToolStripMenuItem();
-            this.debugToolStripMenuItem = new ToolStripMenuItem();
-            this.showToolStripMenuItem = new ToolStripMenuItem();
-            this.hideToolStripMenuItem = new ToolStripMenuItem();
-            this.timer1 = new System.Windows.Forms.Timer(this.components);
-            this.gbMagCalib = new GroupBox();
-            this.label1 = new Label();
-            this.tbOffZ = new TextBox();
-            this.tbOffY = new TextBox();
-            this.tbOffX = new TextBox();
-            this.label18 = new Label();
-            this.tbarMagSens = new TrackBar();
-            this.button1 = new Button();
-            this.label16 = new Label();
-            this.tbMagSamples = new TextBox();
-            this.tbMinX = new TextBox();
-            this.label9 = new Label();
-            this.label12 = new Label();
-            this.label13 = new Label();
-            this.label14 = new Label();
-            this.label15 = new Label();
-            this.tbMaxZ = new TextBox();
-            this.tbMinZ = new TextBox();
-            this.tbMaxY = new TextBox();
-            this.tbMinY = new TextBox();
-            this.tbMaxX = new TextBox();
-            this.btSave = new Button();
-            this.tabControl1 = new TabControl();
-            this.tabPage1 = new TabPage();
-            this.elementHost1 = new ElementHost();
-            this.edtracker1 = new EDTrackerWpfControls.HeadTracker();
-            this.tabPage2 = new TabPage();
-            this.groupBox2 = new GroupBox();
-            this.tbMagMat9 = new TextBox();
-            this.tbMagMat8 = new TextBox();
-            this.tbMagMat7 = new TextBox();
-            this.tbMagMat6 = new TextBox();
-            this.tbMagMat5 = new TextBox();
-            this.tbMagMat4 = new TextBox();
-            this.tbMagMat1 = new TextBox();
-            this.tbMagMat2 = new TextBox();
-            this.tbMagMat3 = new TextBox();
-            this.elementHost2 = new ElementHost();
-            this.magCloud1 = new EDTrackerWpfControls.MagCloud();
-            this.gbMagGyro = new GroupBox();
-            this.btMagResetView = new Button();
-            this.btMagAutoBias = new Button();
-            this.tbGyroX = new TextBox();
-            this.lbGX = new Label();
-            this.tbGyroZ = new TextBox();
-            this.tbGyroY = new TextBox();
-            this.groupBox1.SuspendLayout();
-            this.gbBias.SuspendLayout();
-            this.gbHotKey.SuspendLayout();
-            this.gbTrackerConfig.SuspendLayout();
-            this.gbDriftComp.SuspendLayout();
-            this.gbScaling.SuspendLayout();
-            this.sliderSmoothing.BeginInit();
-            this.menuStrip1.SuspendLayout();
-            this.gbMagCalib.SuspendLayout();
-            this.tbarMagSens.BeginInit();
-            this.tabControl1.SuspendLayout();
-            this.tabPage1.SuspendLayout();
-            this.tabPage2.SuspendLayout();
-            this.groupBox2.SuspendLayout();
-            this.gbMagGyro.SuspendLayout();
-            this.SuspendLayout();
-            this.bWipeAll.BackColor = System.Drawing.SystemColors.InactiveCaption;
-            this.bWipeAll.FlatAppearance.BorderColor = System.Drawing.SystemColors.ButtonHighlight;
-            this.bWipeAll.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.bWipeAll.ForeColor = System.Drawing.Color.Black;
-            this.bWipeAll.Location = new System.Drawing.Point(17, 627);
-            this.bWipeAll.Margin = new Padding(2, 3, 2, 3);
-            this.bWipeAll.Name = "bWipeAll";
-            this.bWipeAll.Size = new System.Drawing.Size(173, 23);
-            this.bWipeAll.TabIndex = 9;
-            this.bWipeAll.Text = "Restore Factory Defaults";
-            this.bWipeAll.UseVisualStyleBackColor = true;
-            this.bWipeAll.Click += new EventHandler(this.bWipeAll_Click);
-            this.cbSketches.BackColor = System.Drawing.SystemColors.Window;
-            this.cbSketches.DisplayMember = "0";
-            this.cbSketches.DropDownStyle = ComboBoxStyle.DropDownList;
-            this.cbSketches.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.cbSketches.Items.AddRange(new object[1]
-            {
-            (object) "Select Sketch..."
-            });
-            this.cbSketches.Location = new System.Drawing.Point(6, 19);
-            this.cbSketches.Name = "cbSketches";
-            this.cbSketches.Size = new System.Drawing.Size(271, 23);
-            this.cbSketches.TabIndex = 53;
-            this.cbSketches.SelectedIndexChanged += new EventHandler(this.cbSketches_SelectedIndexChanged);
-            this.cbPort.DropDownStyle = ComboBoxStyle.DropDownList;
-            this.cbPort.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.cbPort.Items.AddRange(new object[1]
-            {
-            (object) "Retrieving COM Ports..."
-            });
-            this.cbPort.Location = new System.Drawing.Point(6, 47);
-            this.cbPort.Name = "cbPort";
-            this.cbPort.Size = new System.Drawing.Size(271, 23);
-            this.cbPort.TabIndex = 55;
-            this.bFlash.BackColor = System.Drawing.SystemColors.ButtonFace;
-            this.bFlash.Enabled = false;
-            this.bFlash.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.bFlash.FlatAppearance.BorderSize = 2;
-            this.bFlash.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.bFlash.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.bFlash.Location = new System.Drawing.Point(6, 75);
-            this.bFlash.Margin = new Padding(2, 3, 2, 3);
-            this.bFlash.Name = "bFlash";
-            this.bFlash.Size = new System.Drawing.Size(172, 23);
-            this.bFlash.TabIndex = 57;
-            this.bFlash.Text = "Flash";
-            this.bFlash.UseVisualStyleBackColor = true;
-            this.bFlash.Click += new EventHandler(this.bFlash_Click);
-            this.groupBox1.Controls.Add((Control)this.bScanPorts);
-            this.groupBox1.Controls.Add((Control)this.cbSketches);
-            this.groupBox1.Controls.Add((Control)this.bFlash);
-            this.groupBox1.Controls.Add((Control)this.cbPort);
-            this.groupBox1.Location = new System.Drawing.Point(3, 27);
-            this.groupBox1.Name = "groupBox1";
-            this.groupBox1.Size = new System.Drawing.Size(292, 107);
-            this.groupBox1.TabIndex = 58;
-            this.groupBox1.TabStop = false;
-            this.groupBox1.Text = "Program EDTracker";
-            this.bScanPorts.BackColor = System.Drawing.SystemColors.ButtonFace;
-            this.bScanPorts.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.bScanPorts.FlatAppearance.BorderSize = 2;
-            this.bScanPorts.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.bScanPorts.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.bScanPorts.Location = new System.Drawing.Point(185, 75);
-            this.bScanPorts.Margin = new Padding(2, 3, 2, 3);
-            this.bScanPorts.Name = "bScanPorts";
-            this.bScanPorts.Size = new System.Drawing.Size(92, 23);
-            this.bScanPorts.TabIndex = 58;
-            this.bScanPorts.Text = "Scan Ports";
-            this.bScanPorts.UseVisualStyleBackColor = true;
-            this.bScanPorts.Click += new EventHandler(this.bScanPorts_Click);
-            this.bMonitor.BackColor = System.Drawing.SystemColors.ButtonFace;
-            this.bMonitor.BackgroundImageLayout = ImageLayout.None;
-            this.bMonitor.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.bMonitor.FlatAppearance.BorderSize = 2;
-            this.bMonitor.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.bMonitor.Font = new Font("Arial", 11f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.bMonitor.Location = new System.Drawing.Point(309, 65);
-            this.bMonitor.Margin = new Padding(2, 3, 2, 3);
-            this.bMonitor.Name = "bMonitor";
-            this.bMonitor.Size = new System.Drawing.Size(315, 31);
-            this.bMonitor.TabIndex = 60;
-            this.bMonitor.Text = "Connect to Tracker";
-            this.bMonitor.UseVisualStyleBackColor = true;
-            this.bMonitor.Click += new EventHandler(this.bMonitor_Click);
-            this.gbBias.Controls.Add((Control)this.biasAX);
-            this.gbBias.Controls.Add((Control)this.axminus);
-            this.gbBias.Controls.Add((Control)this.axplus);
-            this.gbBias.Controls.Add((Control)this.udAX);
-            this.gbBias.Controls.Add((Control)this.label5);
-            this.gbBias.Controls.Add((Control)this.biasAY);
-            this.gbBias.Controls.Add((Control)this.ayminus);
-            this.gbBias.Controls.Add((Control)this.ayplus);
-            this.gbBias.Controls.Add((Control)this.udAY);
-            this.gbBias.Controls.Add((Control)this.label6);
-            this.gbBias.Controls.Add((Control)this.biasAZ);
-            this.gbBias.Controls.Add((Control)this.azminus);
-            this.gbBias.Controls.Add((Control)this.azplus);
-            this.gbBias.Controls.Add((Control)this.udAZ);
-            this.gbBias.Controls.Add((Control)this.label7);
-            this.gbBias.Controls.Add((Control)this.biasGZ);
-            this.gbBias.Controls.Add((Control)this.gzminus);
-            this.gbBias.Controls.Add((Control)this.gzplus);
-            this.gbBias.Controls.Add((Control)this.udGZ);
-            this.gbBias.Controls.Add((Control)this.label4);
-            this.gbBias.Controls.Add((Control)this.biasGY);
-            this.gbBias.Controls.Add((Control)this.gyminus);
-            this.gbBias.Controls.Add((Control)this.gyplus);
-            this.gbBias.Controls.Add((Control)this.udGY);
-            this.gbBias.Controls.Add((Control)this.label3);
-            this.gbBias.Controls.Add((Control)this.biasGX);
-            this.gbBias.Controls.Add((Control)this.gxminus);
-            this.gbBias.Controls.Add((Control)this.udGX);
-            this.gbBias.Controls.Add((Control)this.gxplus);
-            this.gbBias.Controls.Add((Control)this.label2);
-            this.gbBias.Controls.Add((Control)this.bCalcBias);
-            this.gbBias.Location = new System.Drawing.Point(3, 229);
-            this.gbBias.Name = "gbBias";
-            this.gbBias.Size = new System.Drawing.Size(218, 210);
-            this.gbBias.TabIndex = 88;
-            this.gbBias.TabStop = false;
-            this.gbBias.Text = "Bias Value";
-            this.biasAX.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.biasAX.Location = new System.Drawing.Point(68, 100);
-            this.biasAX.Name = "biasAX";
-            this.biasAX.ReadOnly = true;
-            this.biasAX.Size = new System.Drawing.Size(39, 21);
-            this.biasAX.TabIndex = 140;
-            this.biasAX.Text = "0";
-            this.biasAX.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.axminus.BackColor = System.Drawing.Color.Azure;
-            this.axminus.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.axminus.FlatAppearance.BorderSize = 2;
-            this.axminus.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.axminus.FlatStyle = FlatStyle.Flat;
-            this.axminus.Location = new System.Drawing.Point(136, 99);
-            this.axminus.Margin = new Padding(2, 3, 2, 3);
-            this.axminus.Name = "axminus";
-            this.axminus.Size = new System.Drawing.Size(20, 23);
-            this.axminus.TabIndex = 139;
-            this.axminus.Text = "-";
-            this.axminus.UseVisualStyleBackColor = false;
-            this.axminus.Click += new EventHandler(this.axminus_Click_1);
-            this.axplus.BackColor = System.Drawing.Color.Azure;
-            this.axplus.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.axplus.FlatAppearance.BorderSize = 2;
-            this.axplus.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.axplus.FlatStyle = FlatStyle.Flat;
-            this.axplus.Location = new System.Drawing.Point(112, 99);
-            this.axplus.Margin = new Padding(2, 3, 2, 3);
-            this.axplus.Name = "axplus";
-            this.axplus.Size = new System.Drawing.Size(20, 23);
-            this.axplus.TabIndex = 138;
-            this.axplus.Text = "+";
-            this.axplus.TextAlign = ContentAlignment.TopCenter;
-            this.axplus.UseVisualStyleBackColor = false;
-            this.axplus.Click += new EventHandler(this.axplus_Click_1);
-            this.udAX.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.udAX.Location = new System.Drawing.Point(160, 100);
-            this.udAX.Name = "udAX";
-            this.udAX.ReadOnly = true;
-            this.udAX.Size = new System.Drawing.Size(39, 21);
-            this.udAX.TabIndex = 137;
-            this.udAX.Text = "0";
-            this.udAX.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.label5.AutoSize = true;
-            this.label5.BackColor = System.Drawing.Color.GhostWhite;
-            this.label5.Location = new System.Drawing.Point(17, 103);
-            this.label5.Name = "label5";
-            this.label5.Size = new System.Drawing.Size(46, 15);
-            this.label5.TabIndex = 136;
-            this.label5.Text = "Accel X";
-            this.biasAY.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.biasAY.Location = new System.Drawing.Point(68, 128);
-            this.biasAY.Name = "biasAY";
-            this.biasAY.ReadOnly = true;
-            this.biasAY.Size = new System.Drawing.Size(39, 21);
-            this.biasAY.TabIndex = 135;
-            this.biasAY.Text = "0";
-            this.biasAY.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.ayminus.BackColor = System.Drawing.Color.Azure;
-            this.ayminus.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.ayminus.FlatAppearance.BorderSize = 2;
-            this.ayminus.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.ayminus.FlatStyle = FlatStyle.Flat;
-            this.ayminus.Location = new System.Drawing.Point(136, (int)sbyte.MaxValue);
-            this.ayminus.Margin = new Padding(2, 3, 2, 3);
-            this.ayminus.Name = "ayminus";
-            this.ayminus.Size = new System.Drawing.Size(20, 23);
-            this.ayminus.TabIndex = 134;
-            this.ayminus.Text = "-";
-            this.ayminus.UseVisualStyleBackColor = false;
-            this.ayminus.Click += new EventHandler(this.ayminus_Click_1);
-            this.ayplus.BackColor = System.Drawing.Color.Azure;
-            this.ayplus.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.ayplus.FlatAppearance.BorderSize = 2;
-            this.ayplus.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.ayplus.FlatStyle = FlatStyle.Flat;
-            this.ayplus.Location = new System.Drawing.Point(112, (int)sbyte.MaxValue);
-            this.ayplus.Margin = new Padding(2, 3, 2, 3);
-            this.ayplus.Name = "ayplus";
-            this.ayplus.Size = new System.Drawing.Size(20, 23);
-            this.ayplus.TabIndex = 133;
-            this.ayplus.Text = "+";
-            this.ayplus.TextAlign = ContentAlignment.TopCenter;
-            this.ayplus.UseVisualStyleBackColor = false;
-            this.ayplus.Click += new EventHandler(this.ayplus_Click_1);
-            this.udAY.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.udAY.Location = new System.Drawing.Point(160, 128);
-            this.udAY.Name = "udAY";
-            this.udAY.ReadOnly = true;
-            this.udAY.Size = new System.Drawing.Size(39, 21);
-            this.udAY.TabIndex = 132;
-            this.udAY.Text = "0";
-            this.udAY.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.label6.AutoSize = true;
-            this.label6.BackColor = System.Drawing.Color.GhostWhite;
-            this.label6.Location = new System.Drawing.Point(17, 131);
-            this.label6.Name = "label6";
-            this.label6.Size = new System.Drawing.Size(46, 15);
-            this.label6.TabIndex = 131;
-            this.label6.Text = "Accel Y";
-            this.biasAZ.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.biasAZ.Location = new System.Drawing.Point(68, 156);
-            this.biasAZ.Name = "biasAZ";
-            this.biasAZ.ReadOnly = true;
-            this.biasAZ.Size = new System.Drawing.Size(39, 21);
-            this.biasAZ.TabIndex = 130;
-            this.biasAZ.Text = "0";
-            this.biasAZ.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.azminus.BackColor = System.Drawing.Color.Azure;
-            this.azminus.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.azminus.FlatAppearance.BorderSize = 2;
-            this.azminus.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.azminus.FlatStyle = FlatStyle.Flat;
-            this.azminus.Location = new System.Drawing.Point(136, 155);
-            this.azminus.Margin = new Padding(2, 3, 2, 3);
-            this.azminus.Name = "azminus";
-            this.azminus.Size = new System.Drawing.Size(20, 23);
-            this.azminus.TabIndex = 129;
-            this.azminus.Text = "-";
-            this.azminus.UseVisualStyleBackColor = false;
-            this.azminus.Click += new EventHandler(this.azminus_Click_1);
-            this.azplus.BackColor = System.Drawing.Color.Azure;
-            this.azplus.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.azplus.FlatAppearance.BorderSize = 2;
-            this.azplus.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.azplus.FlatStyle = FlatStyle.Flat;
-            this.azplus.Location = new System.Drawing.Point(112, 155);
-            this.azplus.Margin = new Padding(2, 3, 2, 3);
-            this.azplus.Name = "azplus";
-            this.azplus.Size = new System.Drawing.Size(20, 23);
-            this.azplus.TabIndex = 128;
-            this.azplus.Text = "+";
-            this.azplus.TextAlign = ContentAlignment.TopCenter;
-            this.azplus.UseVisualStyleBackColor = false;
-            this.azplus.Click += new EventHandler(this.azplus_Click_1);
-            this.udAZ.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.udAZ.Location = new System.Drawing.Point(160, 156);
-            this.udAZ.Name = "udAZ";
-            this.udAZ.ReadOnly = true;
-            this.udAZ.Size = new System.Drawing.Size(39, 21);
-            this.udAZ.TabIndex = (int)sbyte.MaxValue;
-            this.udAZ.Text = "0";
-            this.udAZ.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.label7.AutoSize = true;
-            this.label7.BackColor = System.Drawing.Color.GhostWhite;
-            this.label7.Location = new System.Drawing.Point(17, 159);
-            this.label7.Name = "label7";
-            this.label7.Size = new System.Drawing.Size(46, 15);
-            this.label7.TabIndex = 126;
-            this.label7.Text = "Accel Z";
-            this.biasGZ.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.biasGZ.Location = new System.Drawing.Point(68, 72);
-            this.biasGZ.Name = "biasGZ";
-            this.biasGZ.ReadOnly = true;
-            this.biasGZ.Size = new System.Drawing.Size(39, 21);
-            this.biasGZ.TabIndex = 115;
-            this.biasGZ.Text = "0";
-            this.biasGZ.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.gzminus.BackColor = System.Drawing.Color.Azure;
-            this.gzminus.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.gzminus.FlatAppearance.BorderSize = 2;
-            this.gzminus.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.gzminus.FlatStyle = FlatStyle.Flat;
-            this.gzminus.Location = new System.Drawing.Point(136, 71);
-            this.gzminus.Margin = new Padding(2, 3, 2, 3);
-            this.gzminus.Name = "gzminus";
-            this.gzminus.Size = new System.Drawing.Size(20, 23);
-            this.gzminus.TabIndex = 114;
-            this.gzminus.Text = "-";
-            this.gzminus.UseVisualStyleBackColor = false;
-            this.gzminus.Click += new EventHandler(this.gzminus_Click_1);
-            this.gzplus.BackColor = System.Drawing.Color.Azure;
-            this.gzplus.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.gzplus.FlatAppearance.BorderSize = 2;
-            this.gzplus.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.gzplus.FlatStyle = FlatStyle.Flat;
-            this.gzplus.Location = new System.Drawing.Point(112, 71);
-            this.gzplus.Margin = new Padding(2, 3, 2, 3);
-            this.gzplus.Name = "gzplus";
-            this.gzplus.Size = new System.Drawing.Size(20, 23);
-            this.gzplus.TabIndex = 113;
-            this.gzplus.Text = "+";
-            this.gzplus.TextAlign = ContentAlignment.TopCenter;
-            this.gzplus.UseVisualStyleBackColor = false;
-            this.gzplus.Click += new EventHandler(this.gzplus_Click_1);
-            this.udGZ.BackColor = System.Drawing.Color.LightSkyBlue;
-            this.udGZ.Location = new System.Drawing.Point(160, 72);
-            this.udGZ.Name = "udGZ";
-            this.udGZ.ReadOnly = true;
-            this.udGZ.Size = new System.Drawing.Size(39, 21);
-            this.udGZ.TabIndex = 112;
-            this.udGZ.Text = "0";
-            this.udGZ.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.label4.AutoSize = true;
-            this.label4.BackColor = System.Drawing.Color.Gold;
-            this.label4.Location = new System.Drawing.Point(17, 75);
-            this.label4.Name = "label4";
-            this.label4.Size = new System.Drawing.Size(42, 15);
-            this.label4.TabIndex = 111;
-            this.label4.Text = "Gyro Z";
-            this.biasGY.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.biasGY.Location = new System.Drawing.Point(68, 44);
-            this.biasGY.Name = "biasGY";
-            this.biasGY.ReadOnly = true;
-            this.biasGY.Size = new System.Drawing.Size(39, 21);
-            this.biasGY.TabIndex = 110;
-            this.biasGY.Text = "0";
-            this.biasGY.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.gyminus.BackColor = System.Drawing.Color.Azure;
-            this.gyminus.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.gyminus.FlatAppearance.BorderSize = 2;
-            this.gyminus.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.gyminus.FlatStyle = FlatStyle.Flat;
-            this.gyminus.Location = new System.Drawing.Point(136, 43);
-            this.gyminus.Margin = new Padding(2, 3, 2, 3);
-            this.gyminus.Name = "gyminus";
-            this.gyminus.Size = new System.Drawing.Size(20, 23);
-            this.gyminus.TabIndex = 109;
-            this.gyminus.Text = "-";
-            this.gyminus.UseVisualStyleBackColor = false;
-            this.gyminus.Click += new EventHandler(this.gyminus_Click_1);
-            this.gyplus.BackColor = System.Drawing.Color.Azure;
-            this.gyplus.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.gyplus.FlatAppearance.BorderSize = 2;
-            this.gyplus.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.gyplus.FlatStyle = FlatStyle.Flat;
-            this.gyplus.Location = new System.Drawing.Point(112, 43);
-            this.gyplus.Margin = new Padding(2, 3, 2, 3);
-            this.gyplus.Name = "gyplus";
-            this.gyplus.Size = new System.Drawing.Size(20, 23);
-            this.gyplus.TabIndex = 108;
-            this.gyplus.Text = "+";
-            this.gyplus.TextAlign = ContentAlignment.TopCenter;
-            this.gyplus.UseVisualStyleBackColor = false;
-            this.gyplus.Click += new EventHandler(this.gyplus_Click_1);
-            this.udGY.BackColor = System.Drawing.Color.MediumSpringGreen;
-            this.udGY.Location = new System.Drawing.Point(160, 44);
-            this.udGY.Name = "udGY";
-            this.udGY.ReadOnly = true;
-            this.udGY.Size = new System.Drawing.Size(39, 21);
-            this.udGY.TabIndex = 107;
-            this.udGY.Text = "0";
-            this.udGY.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.label3.AutoSize = true;
-            this.label3.BackColor = System.Drawing.Color.Gold;
-            this.label3.Location = new System.Drawing.Point(17, 47);
-            this.label3.Name = "label3";
-            this.label3.Size = new System.Drawing.Size(42, 15);
-            this.label3.TabIndex = 106;
-            this.label3.Text = "Gyro Y";
-            this.biasGX.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.biasGX.Location = new System.Drawing.Point(68, 16);
-            this.biasGX.Name = "biasGX";
-            this.biasGX.ReadOnly = true;
-            this.biasGX.Size = new System.Drawing.Size(39, 21);
-            this.biasGX.TabIndex = 105;
-            this.biasGX.Text = "0";
-            this.biasGX.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.gxminus.BackColor = System.Drawing.Color.Azure;
-            this.gxminus.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.gxminus.FlatAppearance.BorderSize = 2;
-            this.gxminus.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.gxminus.FlatStyle = FlatStyle.Flat;
-            this.gxminus.Location = new System.Drawing.Point(136, 15);
-            this.gxminus.Margin = new Padding(2, 3, 2, 3);
-            this.gxminus.Name = "gxminus";
-            this.gxminus.Size = new System.Drawing.Size(20, 23);
-            this.gxminus.TabIndex = 104;
-            this.gxminus.Text = "-";
-            this.gxminus.UseVisualStyleBackColor = false;
-            this.gxminus.Click += new EventHandler(this.gxminus_Click_1);
-            this.udGX.BackColor = System.Drawing.Color.LemonChiffon;
-            this.udGX.Location = new System.Drawing.Point(160, 16);
-            this.udGX.Name = "udGX";
-            this.udGX.ReadOnly = true;
-            this.udGX.Size = new System.Drawing.Size(39, 21);
-            this.udGX.TabIndex = 102;
-            this.udGX.Text = "0";
-            this.udGX.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.gxplus.BackColor = System.Drawing.Color.Azure;
-            this.gxplus.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.gxplus.FlatAppearance.BorderSize = 2;
-            this.gxplus.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.gxplus.FlatStyle = FlatStyle.Flat;
-            this.gxplus.Location = new System.Drawing.Point(112, 15);
-            this.gxplus.Margin = new Padding(2, 3, 2, 3);
-            this.gxplus.Name = "gxplus";
-            this.gxplus.Size = new System.Drawing.Size(20, 23);
-            this.gxplus.TabIndex = 103;
-            this.gxplus.Text = "+";
-            this.gxplus.TextAlign = ContentAlignment.TopCenter;
-            this.gxplus.UseVisualStyleBackColor = false;
-            this.gxplus.Click += new EventHandler(this.gxplus_Click_1);
-            this.label2.AutoSize = true;
-            this.label2.BackColor = System.Drawing.Color.Gold;
-            this.label2.Location = new System.Drawing.Point(17, 19);
-            this.label2.Name = "label2";
-            this.label2.Size = new System.Drawing.Size(42, 15);
-            this.label2.TabIndex = 101;
-            this.label2.Text = "Gyro X";
-            this.bCalcBias.BackColor = System.Drawing.SystemColors.ButtonFace;
-            this.bCalcBias.CausesValidation = false;
-            this.bCalcBias.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.bCalcBias.FlatAppearance.BorderSize = 2;
-            this.bCalcBias.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.bCalcBias.Location = new System.Drawing.Point(46, 180);
-            this.bCalcBias.Margin = new Padding(2, 3, 2, 3);
-            this.bCalcBias.Name = "bCalcBias";
-            this.bCalcBias.Size = new System.Drawing.Size(153, 23);
-            this.bCalcBias.TabIndex = 11;
-            this.bCalcBias.Text = "Calculate Bias Values";
-            this.bCalcBias.UseVisualStyleBackColor = true;
-            this.bCalcBias.Click += new EventHandler(this.bCalcBias_Click);
-            this.gbHotKey.Controls.Add((Control)this.btEnableAC);
-            this.gbHotKey.Controls.Add((Control)this.tbAutoCentre);
-            this.gbHotKey.Controls.Add((Control)this.btToggleAutoCentre);
-            this.gbHotKey.Controls.Add((Control)this.cbHKey);
-            this.gbHotKey.Controls.Add((Control)this.cbCOntrollerButtons);
-            this.gbHotKey.Controls.Add((Control)this.cbControllerButton);
-            this.gbHotKey.Controls.Add((Control)this.cbHotKey);
-            this.gbHotKey.Location = new System.Drawing.Point(3, 396);
-            this.gbHotKey.Name = "gbHotKey";
-            this.gbHotKey.Size = new System.Drawing.Size(292, 76);
-            this.gbHotKey.TabIndex = 143;
-            this.gbHotKey.TabStop = false;
-            this.gbHotKey.Text = "Recentre";
-            this.btEnableAC.Enabled = false;
-            this.btEnableAC.Location = new System.Drawing.Point(218, 44);
-            this.btEnableAC.Name = "btEnableAC";
-            this.btEnableAC.Size = new System.Drawing.Size(59, 23);
-            this.btEnableAC.TabIndex = 152;
-            this.btEnableAC.Text = "Enable";
-            this.btEnableAC.UseVisualStyleBackColor = true;
-            this.btEnableAC.Visible = false;
-            this.btEnableAC.Click += new EventHandler(this.btEnableAC_Click);
-            this.tbAutoCentre.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbAutoCentre.BorderStyle = BorderStyle.None;
-            this.tbAutoCentre.Font = new Font("Arial", 11f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbAutoCentre.ForeColor = System.Drawing.SystemColors.ActiveCaptionText;
-            this.tbAutoCentre.Location = new System.Drawing.Point(135, 46);
-            this.tbAutoCentre.Multiline = true;
-            this.tbAutoCentre.Name = "tbAutoCentre";
-            this.tbAutoCentre.ReadOnly = true;
-            this.tbAutoCentre.Size = new System.Drawing.Size(74, 20);
-            this.tbAutoCentre.TabIndex = 157;
-            this.tbAutoCentre.TextAlign = System.Windows.Forms.HorizontalAlignment.Center;
-            this.btToggleAutoCentre.BackColor = System.Drawing.SystemColors.ButtonFace;
-            this.btToggleAutoCentre.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.btToggleAutoCentre.FlatAppearance.BorderSize = 2;
-            this.btToggleAutoCentre.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.btToggleAutoCentre.Location = new System.Drawing.Point(12, 44);
-            this.btToggleAutoCentre.Margin = new Padding(2, 3, 2, 3);
-            this.btToggleAutoCentre.Name = "btToggleAutoCentre";
-            this.btToggleAutoCentre.Size = new System.Drawing.Size(118, 23);
-            this.btToggleAutoCentre.TabIndex = 156;
-            this.btToggleAutoCentre.Text = "Toggle Auto-centre";
-            this.btToggleAutoCentre.UseVisualStyleBackColor = true;
-            this.btToggleAutoCentre.Click += new EventHandler(this.btToggleAutoCentre_Click);
-            this.cbHKey.FormattingEnabled = true;
-            this.cbHKey.Items.AddRange(new object[4]
-            {
-            (object) "Button 1",
-            (object) "Button 2",
-            (object) "Button 3",
-            (object) "Button 4"
-            });
-            this.cbHKey.Location = new System.Drawing.Point(135, 19);
-            this.cbHKey.Name = "cbHKey";
-            this.cbHKey.Size = new System.Drawing.Size(74, 23);
-            this.cbHKey.TabIndex = 41;
-            this.cbHKey.SelectedIndexChanged += new EventHandler(this.cbHKey_SelectedIndexChanged);
-            this.cbCOntrollerButtons.FormattingEnabled = true;
-            this.cbCOntrollerButtons.Items.AddRange(new object[4]
-            {
-            (object) "Button 1",
-            (object) "Button 2",
-            (object) "Button 3",
-            (object) "Button 4"
-            });
-            this.cbCOntrollerButtons.Location = new System.Drawing.Point(153, 44);
-            this.cbCOntrollerButtons.Name = "cbCOntrollerButtons";
-            this.cbCOntrollerButtons.Size = new System.Drawing.Size(121, 23);
-            this.cbCOntrollerButtons.TabIndex = 40;
-            this.cbCOntrollerButtons.Visible = false;
-            this.cbControllerButton.AutoSize = true;
-            this.cbControllerButton.Location = new System.Drawing.Point(6, 46);
-            this.cbControllerButton.Name = "cbControllerButton";
-            this.cbControllerButton.RightToLeft = RightToLeft.Yes;
-            this.cbControllerButton.Size = new System.Drawing.Size(160, 19);
-            this.cbControllerButton.TabIndex = 35;
-            this.cbControllerButton.Text = "Enable Controller Button";
-            this.cbControllerButton.UseVisualStyleBackColor = true;
-            this.cbControllerButton.Visible = false;
-            this.cbHotKey.AutoSize = true;
-            this.cbHotKey.Location = new System.Drawing.Point(12, 21);
-            this.cbHotKey.Name = "cbHotKey";
-            this.cbHotKey.RightToLeft = RightToLeft.Yes;
-            this.cbHotKey.Size = new System.Drawing.Size(105, 19);
-            this.cbHotKey.TabIndex = 34;
-            this.cbHotKey.Text = "Enable Hotkey";
-            this.cbHotKey.TextAlign = ContentAlignment.MiddleRight;
-            this.cbHotKey.UseVisualStyleBackColor = true;
-            this.cbHotKey.CheckedChanged += new EventHandler(this.cbHotKey_CheckedChanged);
-            this.gbTrackerConfig.Controls.Add((Control)this.bOrientate);
-            this.gbTrackerConfig.Controls.Add((Control)this.tbOrientation);
-            this.gbTrackerConfig.Controls.Add((Control)this.bSensorMode);
-            this.gbTrackerConfig.Controls.Add((Control)this.tbSensorMode);
-            this.gbTrackerConfig.Location = new System.Drawing.Point(3, 139);
-            this.gbTrackerConfig.Name = "gbTrackerConfig";
-            this.gbTrackerConfig.Size = new System.Drawing.Size(292, 83);
-            this.gbTrackerConfig.TabIndex = 89;
-            this.gbTrackerConfig.TabStop = false;
-            this.gbTrackerConfig.Text = "Tracker Config";
-            this.bOrientate.BackColor = System.Drawing.SystemColors.ButtonFace;
-            this.bOrientate.Enabled = false;
-            this.bOrientate.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.bOrientate.FlatAppearance.BorderSize = 2;
-            this.bOrientate.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.bOrientate.Location = new System.Drawing.Point(6, 19);
-            this.bOrientate.Margin = new Padding(2, 3, 2, 3);
-            this.bOrientate.Name = "bOrientate";
-            this.bOrientate.Size = new System.Drawing.Size(149, 23);
-            this.bOrientate.TabIndex = 53;
-            this.bOrientate.Text = "Rotate Mounting Axis";
-            this.bOrientate.UseVisualStyleBackColor = true;
-            this.bOrientate.Click += new EventHandler(this.bOrientate_Click);
-            this.tbOrientation.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbOrientation.BorderStyle = BorderStyle.None;
-            this.tbOrientation.Font = new Font("Arial", 9.75f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbOrientation.ForeColor = System.Drawing.SystemColors.ActiveCaptionText;
-            this.tbOrientation.Location = new System.Drawing.Point(164, 21);
-            this.tbOrientation.Multiline = true;
-            this.tbOrientation.Name = "tbOrientation";
-            this.tbOrientation.ReadOnly = true;
-            this.tbOrientation.Size = new System.Drawing.Size(113, 20);
-            this.tbOrientation.TabIndex = 56;
-            this.tbOrientation.TextAlign = System.Windows.Forms.HorizontalAlignment.Center;
-            this.tbOrientation.TextChanged += new EventHandler(this.tbOrientation_TextChanged);
-            this.bSensorMode.BackColor = System.Drawing.SystemColors.ButtonFace;
-            this.bSensorMode.Enabled = false;
-            this.bSensorMode.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.bSensorMode.FlatAppearance.BorderSize = 2;
-            this.bSensorMode.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.bSensorMode.Location = new System.Drawing.Point(6, 53);
-            this.bSensorMode.Margin = new Padding(2, 3, 2, 3);
-            this.bSensorMode.Name = "bSensorMode";
-            this.bSensorMode.Size = new System.Drawing.Size(149, 23);
-            this.bSensorMode.TabIndex = 55;
-            this.bSensorMode.Text = "Toggle Sensor Mode";
-            this.bSensorMode.UseVisualStyleBackColor = true;
-            this.bSensorMode.Click += new EventHandler(this.bSensorMode_Click);
-            this.tbSensorMode.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbSensorMode.BorderStyle = BorderStyle.None;
-            this.tbSensorMode.Font = new Font("Arial", 9.75f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbSensorMode.ForeColor = System.Drawing.SystemColors.ActiveCaptionText;
-            this.tbSensorMode.Location = new System.Drawing.Point(164, 55);
-            this.tbSensorMode.Multiline = true;
-            this.tbSensorMode.Name = "tbSensorMode";
-            this.tbSensorMode.ReadOnly = true;
-            this.tbSensorMode.Size = new System.Drawing.Size(113, 20);
-            this.tbSensorMode.TabIndex = 57;
-            this.tbSensorMode.TextAlign = System.Windows.Forms.HorizontalAlignment.Center;
-            this.tbSketch.BackColor = System.Drawing.SystemColors.GradientActiveCaption;
-            this.tbSketch.CausesValidation = false;
-            this.tbSketch.Font = new Font("Arial", 16f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbSketch.Location = new System.Drawing.Point(309, 31);
-            this.tbSketch.Name = "tbSketch";
-            this.tbSketch.ReadOnly = true;
-            this.tbSketch.Size = new System.Drawing.Size(314, 32);
-            this.tbSketch.TabIndex = 140;
-            this.tbSketch.Text = "EDTracker Sketch";
-            this.tbSketch.TextAlign = System.Windows.Forms.HorizontalAlignment.Center;
-            this.gbDriftComp.Controls.Add((Control)this.lbTimer);
-            this.gbDriftComp.Controls.Add((Control)this.tbTime);
-            this.gbDriftComp.Controls.Add((Control)this.bSaveDriftComp);
-            this.gbDriftComp.Controls.Add((Control)this.bResetView);
-            this.gbDriftComp.Controls.Add((Control)this.tbDriftComp);
-            this.gbDriftComp.Controls.Add((Control)this.lbComp);
-            this.gbDriftComp.Controls.Add((Control)this.tbYawDrift);
-            this.gbDriftComp.Controls.Add((Control)this.lbYawDrift);
-            this.gbDriftComp.Controls.Add((Control)this.btCompDown);
-            this.gbDriftComp.Controls.Add((Control)this.btCompUp);
-            this.gbDriftComp.Location = new System.Drawing.Point(3, 474);
-            this.gbDriftComp.Name = "gbDriftComp";
-            this.gbDriftComp.Size = new System.Drawing.Size(292, 134);
-            this.gbDriftComp.TabIndex = 141;
-            this.gbDriftComp.TabStop = false;
-            this.gbDriftComp.Text = "Drift Compensation";
-            this.lbTimer.AutoSize = true;
-            this.lbTimer.Location = new System.Drawing.Point(143, 18);
-            this.lbTimer.Name = "lbTimer";
-            this.lbTimer.Size = new System.Drawing.Size(39, 15);
-            this.lbTimer.TabIndex = 154;
-            this.lbTimer.Text = "Timer";
-            this.lbTimer.TextAlign = ContentAlignment.MiddleRight;
-            this.tbTime.BackColor = System.Drawing.Color.LemonChiffon;
-            this.tbTime.Font = new Font("Courier New", 8.25f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbTime.Location = new System.Drawing.Point(180, 15);
-            this.tbTime.Name = "tbTime";
-            this.tbTime.ReadOnly = true;
-            this.tbTime.Size = new System.Drawing.Size(44, 20);
-            this.tbTime.TabIndex = 153;
-            this.tbTime.Text = "00:00";
-            this.tbTime.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.bSaveDriftComp.BackColor = System.Drawing.SystemColors.ButtonFace;
-            this.bSaveDriftComp.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.bSaveDriftComp.FlatAppearance.BorderSize = 2;
-            this.bSaveDriftComp.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.bSaveDriftComp.Location = new System.Drawing.Point(14, 99);
-            this.bSaveDriftComp.Margin = new Padding(2, 3, 2, 3);
-            this.bSaveDriftComp.Name = "bSaveDriftComp";
-            this.bSaveDriftComp.Size = new System.Drawing.Size(173, 23);
-            this.bSaveDriftComp.TabIndex = 145;
-            this.bSaveDriftComp.Text = "Save Drift Compensation";
-            this.bSaveDriftComp.UseVisualStyleBackColor = true;
-            this.bSaveDriftComp.Click += new EventHandler(this.bSaveDriftComp_Click);
-            this.bResetView.BackColor = System.Drawing.SystemColors.ButtonFace;
-            this.bResetView.BackgroundImageLayout = ImageLayout.None;
-            this.bResetView.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.bResetView.FlatAppearance.BorderSize = 2;
-            this.bResetView.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.bResetView.Location = new System.Drawing.Point(14, 71);
-            this.bResetView.Margin = new Padding(2, 3, 2, 3);
-            this.bResetView.Name = "bResetView";
-            this.bResetView.Size = new System.Drawing.Size(173, 23);
-            this.bResetView.TabIndex = 144;
-            this.bResetView.Text = "Reset View / Drift Tracking";
-            this.bResetView.UseVisualStyleBackColor = true;
-            this.bResetView.Click += new EventHandler(this.bResetView_Click);
-            this.tbDriftComp.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbDriftComp.Location = new System.Drawing.Point(94, 39);
-            this.tbDriftComp.Name = "tbDriftComp";
-            this.tbDriftComp.ReadOnly = true;
-            this.tbDriftComp.Size = new System.Drawing.Size(39, 21);
-            this.tbDriftComp.TabIndex = 141;
-            this.tbDriftComp.Text = "0";
-            this.tbDriftComp.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.lbComp.AutoSize = true;
-            this.lbComp.Location = new System.Drawing.Point(6, 44);
-            this.lbComp.Name = "lbComp";
-            this.lbComp.Size = new System.Drawing.Size(89, 15);
-            this.lbComp.TabIndex = 140;
-            this.lbComp.Text = "Compensation";
-            this.lbComp.TextAlign = ContentAlignment.MiddleRight;
-            this.tbYawDrift.BackColor = System.Drawing.Color.LemonChiffon;
-            this.tbYawDrift.Location = new System.Drawing.Point(93, 15);
-            this.tbYawDrift.Name = "tbYawDrift";
-            this.tbYawDrift.ReadOnly = true;
-            this.tbYawDrift.Size = new System.Drawing.Size(39, 21);
-            this.tbYawDrift.TabIndex = 139;
-            this.tbYawDrift.Text = "0";
-            this.tbYawDrift.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.lbYawDrift.AutoSize = true;
-            this.lbYawDrift.Location = new System.Drawing.Point(36, 18);
-            this.lbYawDrift.Name = "lbYawDrift";
-            this.lbYawDrift.Size = new System.Drawing.Size(54, 15);
-            this.lbYawDrift.TabIndex = 138;
-            this.lbYawDrift.Text = "Yaw Drift";
-            this.lbYawDrift.TextAlign = ContentAlignment.MiddleRight;
-            this.btCompDown.BackColor = System.Drawing.Color.Azure;
-            this.btCompDown.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.btCompDown.FlatAppearance.BorderSize = 2;
-            this.btCompDown.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.btCompDown.FlatStyle = FlatStyle.Flat;
-            this.btCompDown.Location = new System.Drawing.Point(168, 39);
-            this.btCompDown.Margin = new Padding(2, 3, 2, 3);
-            this.btCompDown.Name = "btCompDown";
-            this.btCompDown.Size = new System.Drawing.Size(20, 23);
-            this.btCompDown.TabIndex = 137;
-            this.btCompDown.Text = "-";
-            this.btCompDown.UseVisualStyleBackColor = false;
-            this.btCompDown.Click += new EventHandler(this.btCompDown_Click);
-            this.btCompUp.BackColor = System.Drawing.Color.Azure;
-            this.btCompUp.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.btCompUp.FlatAppearance.BorderSize = 2;
-            this.btCompUp.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.btCompUp.FlatStyle = FlatStyle.Flat;
-            this.btCompUp.Location = new System.Drawing.Point(144, 39);
-            this.btCompUp.Margin = new Padding(2, 3, 2, 3);
-            this.btCompUp.Name = "btCompUp";
-            this.btCompUp.Size = new System.Drawing.Size(20, 23);
-            this.btCompUp.TabIndex = 136;
-            this.btCompUp.Text = "+";
-            this.btCompUp.UseVisualStyleBackColor = false;
-            this.btCompUp.Click += new EventHandler(this.btCompUp_Click);
-            this.gbScaling.Controls.Add((Control)this.tbSmoothing);
-            this.gbScaling.Controls.Add((Control)this.lbSmooth);
-            this.gbScaling.Controls.Add((Control)this.sliderSmoothing);
-            this.gbScaling.Controls.Add((Control)this.tbRespMode);
-            this.gbScaling.Controls.Add((Control)this.bRespMode);
-            this.gbScaling.Controls.Add((Control)this.tbPitchScaling);
-            this.gbScaling.Controls.Add((Control)this.label11);
-            this.gbScaling.Controls.Add((Control)this.tbYawScaling);
-            this.gbScaling.Controls.Add((Control)this.label10);
-            this.gbScaling.Controls.Add((Control)this.cbFineAdjust);
-            this.gbScaling.Controls.Add((Control)this.btYawScaleDown);
-            this.gbScaling.Controls.Add((Control)this.btPitchScaleDown);
-            this.gbScaling.Controls.Add((Control)this.btPitchScaleUp);
-            this.gbScaling.Controls.Add((Control)this.btYawScaleUp);
-            this.gbScaling.Location = new System.Drawing.Point(3, 227);
-            this.gbScaling.Name = "gbScaling";
-            this.gbScaling.Size = new System.Drawing.Size(292, 165);
-            this.gbScaling.TabIndex = 142;
-            this.gbScaling.TabStop = false;
-            this.gbScaling.Text = "Response Scaling";
-            this.tbSmoothing.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbSmoothing.Location = new System.Drawing.Point(95, 78);
-            this.tbSmoothing.Name = "tbSmoothing";
-            this.tbSmoothing.ReadOnly = true;
-            this.tbSmoothing.Size = new System.Drawing.Size(39, 21);
-            this.tbSmoothing.TabIndex = 154;
-            this.tbSmoothing.Text = "0";
-            this.tbSmoothing.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.lbSmooth.AutoSize = true;
-            this.lbSmooth.Location = new System.Drawing.Point(9, 80);
-            this.lbSmooth.Name = "lbSmooth";
-            this.lbSmooth.Size = new System.Drawing.Size(67, 15);
-            this.lbSmooth.TabIndex = 153;
-            this.lbSmooth.Text = "Smoothing";
-            this.lbSmooth.TextAlign = ContentAlignment.MiddleRight;
-            this.sliderSmoothing.AutoSize = false;
-            this.sliderSmoothing.Location = new System.Drawing.Point(139, 78);
-            this.sliderSmoothing.Maximum = 99;
-            this.sliderSmoothing.Name = "sliderSmoothing";
-            this.sliderSmoothing.Size = new System.Drawing.Size(138, 27);
-            this.sliderSmoothing.TabIndex = 152;
-            this.sliderSmoothing.Scroll += new EventHandler(this.trackBar1_Scroll);
-            this.sliderSmoothing.MouseUp += new MouseEventHandler(this.trackBar1_MUP);
-            this.tbRespMode.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbRespMode.BorderStyle = BorderStyle.None;
-            this.tbRespMode.Font = new Font("Arial", 9.75f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbRespMode.ForeColor = System.Drawing.SystemColors.ActiveCaptionText;
-            this.tbRespMode.Location = new System.Drawing.Point(164, (int)sbyte.MaxValue);
-            this.tbRespMode.Multiline = true;
-            this.tbRespMode.Name = "tbRespMode";
-            this.tbRespMode.ReadOnly = true;
-            this.tbRespMode.Size = new System.Drawing.Size(113, 20);
-            this.tbRespMode.TabIndex = 150;
-            this.tbRespMode.TextAlign = System.Windows.Forms.HorizontalAlignment.Center;
-            this.bRespMode.BackColor = System.Drawing.SystemColors.ButtonFace;
-            this.bRespMode.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.bRespMode.FlatAppearance.BorderSize = 2;
-            this.bRespMode.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.bRespMode.Location = new System.Drawing.Point(6, 125);
-            this.bRespMode.Margin = new Padding(2, 3, 2, 3);
-            this.bRespMode.Name = "bRespMode";
-            this.bRespMode.Size = new System.Drawing.Size(150, 23);
-            this.bRespMode.TabIndex = 149;
-            this.bRespMode.Text = "Toggle Response Mode";
-            this.bRespMode.UseVisualStyleBackColor = true;
-            this.bRespMode.Click += new EventHandler(this.bRespMode_Click);
-            this.tbPitchScaling.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbPitchScaling.Location = new System.Drawing.Point(95, 52);
-            this.tbPitchScaling.Name = "tbPitchScaling";
-            this.tbPitchScaling.ReadOnly = true;
-            this.tbPitchScaling.Size = new System.Drawing.Size(39, 21);
-            this.tbPitchScaling.TabIndex = 148;
-            this.tbPitchScaling.Text = "0";
-            this.tbPitchScaling.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.label11.AutoSize = true;
-            this.label11.Location = new System.Drawing.Point(9, 55);
-            this.label11.Name = "label11";
-            this.label11.Size = new System.Drawing.Size(78, 15);
-            this.label11.TabIndex = 147;
-            this.label11.Text = "Pitch Scaling";
-            this.label11.TextAlign = ContentAlignment.MiddleRight;
-            this.tbYawScaling.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbYawScaling.Location = new System.Drawing.Point(95, 24);
-            this.tbYawScaling.Name = "tbYawScaling";
-            this.tbYawScaling.ReadOnly = true;
-            this.tbYawScaling.Size = new System.Drawing.Size(39, 21);
-            this.tbYawScaling.TabIndex = 146;
-            this.tbYawScaling.Text = "0";
-            this.tbYawScaling.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.label10.AutoSize = true;
-            this.label10.Location = new System.Drawing.Point(9, 27);
-            this.label10.Name = "label10";
-            this.label10.Size = new System.Drawing.Size(73, 15);
-            this.label10.TabIndex = 145;
-            this.label10.Text = "Yaw Scaling";
-            this.label10.TextAlign = ContentAlignment.MiddleRight;
-            this.cbFineAdjust.AutoSize = true;
-            this.cbFineAdjust.Location = new System.Drawing.Point(188, 22);
-            this.cbFineAdjust.Name = "cbFineAdjust";
-            this.cbFineAdjust.Size = new System.Drawing.Size(86, 19);
-            this.cbFineAdjust.TabIndex = 144;
-            this.cbFineAdjust.Text = "Fine Adjust";
-            this.cbFineAdjust.UseVisualStyleBackColor = true;
-            this.btYawScaleDown.BackColor = System.Drawing.Color.Azure;
-            this.btYawScaleDown.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.btYawScaleDown.FlatAppearance.BorderSize = 2;
-            this.btYawScaleDown.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.btYawScaleDown.FlatStyle = FlatStyle.Flat;
-            this.btYawScaleDown.Location = new System.Drawing.Point(163, 22);
-            this.btYawScaleDown.Margin = new Padding(2, 3, 2, 3);
-            this.btYawScaleDown.Name = "btYawScaleDown";
-            this.btYawScaleDown.Size = new System.Drawing.Size(20, 23);
-            this.btYawScaleDown.TabIndex = 143;
-            this.btYawScaleDown.Text = "-";
-            this.btYawScaleDown.UseVisualStyleBackColor = false;
-            this.btYawScaleDown.Click += new EventHandler(this.btYawScaleDown_Click);
-            this.btPitchScaleDown.BackColor = System.Drawing.Color.Azure;
-            this.btPitchScaleDown.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.btPitchScaleDown.FlatAppearance.BorderSize = 2;
-            this.btPitchScaleDown.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.btPitchScaleDown.FlatStyle = FlatStyle.Flat;
-            this.btPitchScaleDown.Location = new System.Drawing.Point(163, 49);
-            this.btPitchScaleDown.Margin = new Padding(2, 3, 2, 3);
-            this.btPitchScaleDown.Name = "btPitchScaleDown";
-            this.btPitchScaleDown.Size = new System.Drawing.Size(20, 23);
-            this.btPitchScaleDown.TabIndex = 142;
-            this.btPitchScaleDown.Text = "-";
-            this.btPitchScaleDown.UseVisualStyleBackColor = false;
-            this.btPitchScaleDown.Click += new EventHandler(this.btPitchScaleDown_Click);
-            this.btPitchScaleUp.BackColor = System.Drawing.Color.Azure;
-            this.btPitchScaleUp.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.btPitchScaleUp.FlatAppearance.BorderSize = 2;
-            this.btPitchScaleUp.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.btPitchScaleUp.FlatStyle = FlatStyle.Flat;
-            this.btPitchScaleUp.Location = new System.Drawing.Point(139, 49);
-            this.btPitchScaleUp.Margin = new Padding(2, 3, 2, 3);
-            this.btPitchScaleUp.Name = "btPitchScaleUp";
-            this.btPitchScaleUp.Size = new System.Drawing.Size(20, 23);
-            this.btPitchScaleUp.TabIndex = 141;
-            this.btPitchScaleUp.Text = "+";
-            this.btPitchScaleUp.UseVisualStyleBackColor = false;
-            this.btPitchScaleUp.Click += new EventHandler(this.btPitchScaleUp_Click);
-            this.btYawScaleUp.BackColor = System.Drawing.Color.Azure;
-            this.btYawScaleUp.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.btYawScaleUp.FlatAppearance.BorderSize = 2;
-            this.btYawScaleUp.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.btYawScaleUp.FlatStyle = FlatStyle.Flat;
-            this.btYawScaleUp.Location = new System.Drawing.Point(139, 22);
-            this.btYawScaleUp.Margin = new Padding(2, 3, 2, 3);
-            this.btYawScaleUp.Name = "btYawScaleUp";
-            this.btYawScaleUp.Size = new System.Drawing.Size(20, 23);
-            this.btYawScaleUp.TabIndex = 140;
-            this.btYawScaleUp.Text = "+";
-            this.btYawScaleUp.UseVisualStyleBackColor = false;
-            this.btYawScaleUp.Click += new EventHandler(this.btYawScaleUp_Click);
-            this.tbTemps.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbTemps.Location = new System.Drawing.Point(267, 17);
-            this.tbTemps.Name = "tbTemps";
-            this.tbTemps.ReadOnly = true;
-            this.tbTemps.Size = new System.Drawing.Size(39, 21);
-            this.tbTemps.TabIndex = 145;
-            this.tbTemps.Text = "0";
-            this.tbTemps.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.lbTemps.AutoSize = true;
-            this.lbTemps.BackColor = System.Drawing.Color.PaleGreen;
-            this.lbTemps.Location = new System.Drawing.Point(185, 20);
-            this.lbTemps.Name = "lbTemps";
-            this.lbTemps.Size = new System.Drawing.Size(77, 15);
-            this.lbTemps.TabIndex = 144;
-            this.lbTemps.Text = "Temperature";
-            this.lbTemps.TextAlign = ContentAlignment.MiddleRight;
-            this.tbMonitor.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbMonitor.BorderStyle = BorderStyle.None;
-            this.tbMonitor.CausesValidation = false;
-            this.tbMonitor.Font = new Font("Arial", 11f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbMonitor.ForeColor = System.Drawing.SystemColors.ActiveCaptionText;
-            this.tbMonitor.Location = new System.Drawing.Point(18, 17);
-            this.tbMonitor.Name = "tbMonitor";
-            this.tbMonitor.ReadOnly = true;
-            this.tbMonitor.Size = new System.Drawing.Size(136, 17);
-            this.tbMonitor.TabIndex = 61;
-            this.tbMonitor.Text = "OFF";
-            this.tbMonitor.TextAlign = System.Windows.Forms.HorizontalAlignment.Center;
-            this.notifyIcon1.BalloonTipText = "EDTracker is minimised";
-            this.notifyIcon1.BalloonTipTitle = "EDTracker UI";
-            this.notifyIcon1.Icon = (Icon)componentResourceManager.GetObject("notifyIcon1.Icon");
-            this.notifyIcon1.Text = "EDTracker";
-            this.notifyIcon1.Visible = true;
-            this.notifyIcon1.MouseDoubleClick += new MouseEventHandler(this.notifyIcon1_MouseDoubleClick);
-            this.lbAxis4.BackColor = System.Drawing.Color.Black;
-            this.lbAxis4.ForeColor = System.Drawing.Color.LightSkyBlue;
-            this.lbAxis4.Location = new System.Drawing.Point(15, 484);
-            this.lbAxis4.Name = "lbAxis4";
-            this.lbAxis4.Size = new System.Drawing.Size(107, 14);
-            this.lbAxis4.TabIndex = 149;
-            this.lbAxis4.Text = "Axis 4";
-            this.lbAxis3.BackColor = System.Drawing.Color.Black;
-            this.lbAxis3.ForeColor = System.Drawing.Color.LawnGreen;
-            this.lbAxis3.Location = new System.Drawing.Point(15, 443);
-            this.lbAxis3.Name = "lbAxis3";
-            this.lbAxis3.Size = new System.Drawing.Size(107, 14);
-            this.lbAxis3.TabIndex = 150;
-            this.lbAxis3.Text = "Axis 3";
-            this.lbAxis2.BackColor = System.Drawing.Color.Black;
-            this.lbAxis2.ForeColor = System.Drawing.Color.Yellow;
-            this.lbAxis2.Location = new System.Drawing.Point(15, 404);
-            this.lbAxis2.Name = "lbAxis2";
-            this.lbAxis2.Size = new System.Drawing.Size(107, 14);
-            this.lbAxis2.TabIndex = 148;
-            this.lbAxis2.Text = "Axis 2";
-            this.lbAxis1.BackColor = System.Drawing.Color.Black;
-            this.lbAxis1.CausesValidation = false;
-            this.lbAxis1.ForeColor = System.Drawing.Color.Red;
-            this.lbAxis1.Location = new System.Drawing.Point(15, 363);
-            this.lbAxis1.Name = "lbAxis1";
-            this.lbAxis1.Size = new System.Drawing.Size(107, 14);
-            this.lbAxis1.TabIndex = 147;
-            this.lbAxis1.Text = "Axis 1";
-            this.menuStrip1.Items.AddRange(new ToolStripItem[3]
-            {
-            (ToolStripItem) this.toolStripMenuItem1,
-            (ToolStripItem) this.Help,
-            (ToolStripItem) this.debugToolStripMenuItem
-            });
-            this.menuStrip1.LayoutStyle = ToolStripLayoutStyle.HorizontalStackWithOverflow;
-            this.menuStrip1.Location = new System.Drawing.Point(0, 0);
-            this.menuStrip1.Name = "menuStrip1";
-            this.menuStrip1.Size = new System.Drawing.Size(654, 24);
-            this.menuStrip1.Stretch = false;
-            this.menuStrip1.TabIndex = 151;
-            this.menuStrip1.Text = "menuStrip1";
-            this.toolStripMenuItem1.Alignment = ToolStripItemAlignment.Right;
-            this.toolStripMenuItem1.DropDownItems.AddRange(new ToolStripItem[2]
-            {
-            (ToolStripItem) this.aboutToolStripMenuItem,
-            (ToolStripItem) this.modeToolStripMenuItem
-            });
-            this.toolStripMenuItem1.Name = "toolStripMenuItem1";
-            this.toolStripMenuItem1.Size = new System.Drawing.Size(52, 20);
-            this.toolStripMenuItem1.Text = "About";
-            this.aboutToolStripMenuItem.Name = "aboutToolStripMenuItem";
-            this.aboutToolStripMenuItem.Size = new System.Drawing.Size(107, 22);
-            this.aboutToolStripMenuItem.Text = "About";
-            this.aboutToolStripMenuItem.Click += new EventHandler(this.aboutToolStripMenuItem_Click);
-            this.modeToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[3]
-            {
-            (ToolStripItem) this.uSERToolStripMenuItem,
-            (ToolStripItem) this.tESTToolStripMenuItem,
-            (ToolStripItem) this.dEVToolStripMenuItem
-            });
-            this.modeToolStripMenuItem.Name = "modeToolStripMenuItem";
-            this.modeToolStripMenuItem.Size = new System.Drawing.Size(107, 22);
-            this.modeToolStripMenuItem.Text = "Mode";
-            this.uSERToolStripMenuItem.Name = "uSERToolStripMenuItem";
-            this.uSERToolStripMenuItem.Size = new System.Drawing.Size(101, 22);
-            this.uSERToolStripMenuItem.Text = "USER";
-            this.uSERToolStripMenuItem.Click += new EventHandler(this.uSERToolStripMenuItem_Click);
-            this.tESTToolStripMenuItem.Name = "tESTToolStripMenuItem";
-            this.tESTToolStripMenuItem.Size = new System.Drawing.Size(101, 22);
-            this.tESTToolStripMenuItem.Text = "TEST";
-            this.tESTToolStripMenuItem.Click += new EventHandler(this.tESTToolStripMenuItem_Click);
-            this.dEVToolStripMenuItem.Name = "dEVToolStripMenuItem";
-            this.dEVToolStripMenuItem.Size = new System.Drawing.Size(101, 22);
-            this.dEVToolStripMenuItem.Text = "DEV";
-            this.dEVToolStripMenuItem.Click += new EventHandler(this.dEVToolStripMenuItem_Click);
-            this.Help.Alignment = ToolStripItemAlignment.Right;
-            this.Help.Name = "Help";
-            this.Help.Size = new System.Drawing.Size(44, 20);
-            this.Help.Text = "Help";
-            this.Help.Click += new EventHandler(this.Help_Click);
-            this.debugToolStripMenuItem.Alignment = ToolStripItemAlignment.Right;
-            this.debugToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[2]
-            {
-            (ToolStripItem) this.showToolStripMenuItem,
-            (ToolStripItem) this.hideToolStripMenuItem
-            });
-            this.debugToolStripMenuItem.Name = "debugToolStripMenuItem";
-            this.debugToolStripMenuItem.Size = new System.Drawing.Size(39, 20);
-            this.debugToolStripMenuItem.Text = "Log";
-            this.showToolStripMenuItem.Name = "showToolStripMenuItem";
-            this.showToolStripMenuItem.Size = new System.Drawing.Size(103, 22);
-            this.showToolStripMenuItem.Text = "Show";
-            this.showToolStripMenuItem.Click += new EventHandler(this.showToolStripMenuItem_Click);
-            this.hideToolStripMenuItem.Name = "hideToolStripMenuItem";
-            this.hideToolStripMenuItem.Size = new System.Drawing.Size(103, 22);
-            this.hideToolStripMenuItem.Text = "Hide";
-            this.hideToolStripMenuItem.Click += new EventHandler(this.hideToolStripMenuItem_Click);
-            this.timer1.Enabled = true;
-            this.timer1.Interval = 1000;
-            this.timer1.Tick += new EventHandler(this.timer1_Tick);
-            this.gbMagCalib.Controls.Add((Control)this.label1);
-            this.gbMagCalib.Controls.Add((Control)this.tbOffZ);
-            this.gbMagCalib.Controls.Add((Control)this.tbOffY);
-            this.gbMagCalib.Controls.Add((Control)this.tbOffX);
-            this.gbMagCalib.Controls.Add((Control)this.label18);
-            this.gbMagCalib.Controls.Add((Control)this.tbarMagSens);
-            this.gbMagCalib.Controls.Add((Control)this.button1);
-            this.gbMagCalib.Controls.Add((Control)this.label16);
-            this.gbMagCalib.Controls.Add((Control)this.tbMagSamples);
-            this.gbMagCalib.Controls.Add((Control)this.tbMinX);
-            this.gbMagCalib.Controls.Add((Control)this.label9);
-            this.gbMagCalib.Controls.Add((Control)this.label12);
-            this.gbMagCalib.Controls.Add((Control)this.label13);
-            this.gbMagCalib.Controls.Add((Control)this.label14);
-            this.gbMagCalib.Controls.Add((Control)this.label15);
-            this.gbMagCalib.Controls.Add((Control)this.tbMaxZ);
-            this.gbMagCalib.Controls.Add((Control)this.tbMinZ);
-            this.gbMagCalib.Controls.Add((Control)this.tbMaxY);
-            this.gbMagCalib.Controls.Add((Control)this.tbMinY);
-            this.gbMagCalib.Controls.Add((Control)this.tbMaxX);
-            this.gbMagCalib.Location = new System.Drawing.Point(6, 315);
-            this.gbMagCalib.Name = "gbMagCalib";
-            this.gbMagCalib.Size = new System.Drawing.Size(174, 205);
-            this.gbMagCalib.TabIndex = 152;
-            this.gbMagCalib.TabStop = false;
-            this.gbMagCalib.Text = "Calibration";
-            this.label1.AutoSize = true;
-            this.label1.Location = new System.Drawing.Point(121, 17);
-            this.label1.Name = "label1";
-            this.label1.Size = new System.Drawing.Size(39, 15);
-            this.label1.TabIndex = 171;
-            this.label1.Text = "Offset";
-            this.label1.TextAlign = ContentAlignment.MiddleRight;
-            this.tbOffZ.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbOffZ.BorderStyle = BorderStyle.None;
-            this.tbOffZ.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbOffZ.ForeColor = System.Drawing.Color.Black;
-            this.tbOffZ.Location = new System.Drawing.Point(122, 87);
-            this.tbOffZ.Multiline = true;
-            this.tbOffZ.Name = "tbOffZ";
-            this.tbOffZ.ReadOnly = true;
-            this.tbOffZ.Size = new System.Drawing.Size(44, 20);
-            this.tbOffZ.TabIndex = 170;
-            this.tbOffZ.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.tbOffY.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbOffY.BorderStyle = BorderStyle.None;
-            this.tbOffY.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbOffY.ForeColor = System.Drawing.Color.Black;
-            this.tbOffY.Location = new System.Drawing.Point(122, 61);
-            this.tbOffY.Multiline = true;
-            this.tbOffY.Name = "tbOffY";
-            this.tbOffY.ReadOnly = true;
-            this.tbOffY.Size = new System.Drawing.Size(44, 20);
-            this.tbOffY.TabIndex = 169;
-            this.tbOffY.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.tbOffX.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbOffX.BorderStyle = BorderStyle.None;
-            this.tbOffX.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbOffX.ForeColor = System.Drawing.Color.Black;
-            this.tbOffX.Location = new System.Drawing.Point(122, 35);
-            this.tbOffX.Multiline = true;
-            this.tbOffX.Name = "tbOffX";
-            this.tbOffX.ReadOnly = true;
-            this.tbOffX.Size = new System.Drawing.Size(44, 20);
-            this.tbOffX.TabIndex = 168;
-            this.tbOffX.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.label18.AutoSize = true;
-            this.label18.Location = new System.Drawing.Point(4, 152);
-            this.label18.Name = "label18";
-            this.label18.Size = new System.Drawing.Size(61, 15);
-            this.label18.TabIndex = 167;
-            this.label18.Text = "Sensitivity";
-            this.label18.TextAlign = ContentAlignment.MiddleRight;
-            this.tbarMagSens.AutoSize = false;
-            this.tbarMagSens.Location = new System.Drawing.Point(6, 173);
-            this.tbarMagSens.Maximum = 20;
-            this.tbarMagSens.Name = "tbarMagSens";
-            this.tbarMagSens.Size = new System.Drawing.Size(162, 23);
-            this.tbarMagSens.TabIndex = 166;
-            this.tbarMagSens.TickStyle = TickStyle.None;
-            this.tbarMagSens.Value = 15;
-            this.tbarMagSens.Scroll += new EventHandler(this.trackBar1_Scroll_1);
-            this.button1.Location = new System.Drawing.Point(98, 114);
-            this.button1.Name = "button1";
-            this.button1.Size = new System.Drawing.Size(71, 23);
-            this.button1.TabIndex = 165;
-            this.button1.Text = "Restart";
-            this.button1.UseVisualStyleBackColor = true;
-            this.button1.Click += new EventHandler(this.button1_Click);
-            this.label16.AutoSize = true;
-            this.label16.Location = new System.Drawing.Point(4, 116);
-            this.label16.Name = "label16";
-            this.label16.Size = new System.Drawing.Size(42, 15);
-            this.label16.TabIndex = 164;
-            this.label16.Text = "Points";
-            this.label16.TextAlign = ContentAlignment.MiddleRight;
-            this.label16.Click += new EventHandler(this.label16_Click);
-            this.tbMagSamples.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbMagSamples.BorderStyle = BorderStyle.None;
-            this.tbMagSamples.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbMagSamples.ForeColor = System.Drawing.Color.Black;
-            this.tbMagSamples.Location = new System.Drawing.Point(47, 114);
-            this.tbMagSamples.Multiline = true;
-            this.tbMagSamples.Name = "tbMagSamples";
-            this.tbMagSamples.ReadOnly = true;
-            this.tbMagSamples.Size = new System.Drawing.Size(45, 20);
-            this.tbMagSamples.TabIndex = 163;
-            this.tbMagSamples.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.tbMinX.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbMinX.BorderStyle = BorderStyle.None;
-            this.tbMinX.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbMinX.ForeColor = System.Drawing.Color.Black;
-            this.tbMinX.Location = new System.Drawing.Point(21, 35);
-            this.tbMinX.Multiline = true;
-            this.tbMinX.Name = "tbMinX";
-            this.tbMinX.ReadOnly = true;
-            this.tbMinX.Size = new System.Drawing.Size(46, 20);
-            this.tbMinX.TabIndex = 152;
-            this.tbMinX.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.label9.AutoSize = true;
-            this.label9.Location = new System.Drawing.Point(73, 16);
-            this.label9.Name = "label9";
-            this.label9.Size = new System.Drawing.Size(28, 15);
-            this.label9.TabIndex = 162;
-            this.label9.Text = "Max";
-            this.label9.TextAlign = ContentAlignment.MiddleRight;
-            this.label12.AutoSize = true;
-            this.label12.Location = new System.Drawing.Point(26, 16);
-            this.label12.Name = "label12";
-            this.label12.Size = new System.Drawing.Size(26, 15);
-            this.label12.TabIndex = 161;
-            this.label12.Text = "Min";
-            this.label12.TextAlign = ContentAlignment.MiddleRight;
-            this.label12.Click += new EventHandler(this.label12_Click);
-            this.label13.AutoSize = true;
-            this.label13.Location = new System.Drawing.Point(4, 89);
-            this.label13.Name = "label13";
-            this.label13.Size = new System.Drawing.Size(14, 15);
-            this.label13.TabIndex = 160;
-            this.label13.Text = "Z";
-            this.label13.TextAlign = ContentAlignment.MiddleRight;
-            this.label14.AutoSize = true;
-            this.label14.Location = new System.Drawing.Point(4, 63);
-            this.label14.Name = "label14";
-            this.label14.Size = new System.Drawing.Size(14, 15);
-            this.label14.TabIndex = 159;
-            this.label14.Text = "Y";
-            this.label14.TextAlign = ContentAlignment.MiddleRight;
-            this.label15.AutoSize = true;
-            this.label15.Location = new System.Drawing.Point(4, 37);
-            this.label15.Name = "label15";
-            this.label15.Size = new System.Drawing.Size(14, 15);
-            this.label15.TabIndex = 158;
-            this.label15.Text = "X";
-            this.label15.TextAlign = ContentAlignment.MiddleRight;
-            this.tbMaxZ.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbMaxZ.BorderStyle = BorderStyle.None;
-            this.tbMaxZ.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbMaxZ.ForeColor = System.Drawing.Color.Black;
-            this.tbMaxZ.Location = new System.Drawing.Point(73, 87);
-            this.tbMaxZ.Multiline = true;
-            this.tbMaxZ.Name = "tbMaxZ";
-            this.tbMaxZ.ReadOnly = true;
-            this.tbMaxZ.Size = new System.Drawing.Size(44, 20);
-            this.tbMaxZ.TabIndex = 157;
-            this.tbMaxZ.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.tbMinZ.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbMinZ.BorderStyle = BorderStyle.None;
-            this.tbMinZ.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbMinZ.ForeColor = System.Drawing.Color.Black;
-            this.tbMinZ.Location = new System.Drawing.Point(21, 87);
-            this.tbMinZ.Multiline = true;
-            this.tbMinZ.Name = "tbMinZ";
-            this.tbMinZ.ReadOnly = true;
-            this.tbMinZ.Size = new System.Drawing.Size(46, 20);
-            this.tbMinZ.TabIndex = 156;
-            this.tbMinZ.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.tbMaxY.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbMaxY.BorderStyle = BorderStyle.None;
-            this.tbMaxY.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbMaxY.ForeColor = System.Drawing.Color.Black;
-            this.tbMaxY.Location = new System.Drawing.Point(73, 61);
-            this.tbMaxY.Multiline = true;
-            this.tbMaxY.Name = "tbMaxY";
-            this.tbMaxY.ReadOnly = true;
-            this.tbMaxY.Size = new System.Drawing.Size(44, 20);
-            this.tbMaxY.TabIndex = 155;
-            this.tbMaxY.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.tbMinY.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbMinY.BorderStyle = BorderStyle.None;
-            this.tbMinY.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbMinY.ForeColor = System.Drawing.Color.Black;
-            this.tbMinY.Location = new System.Drawing.Point(21, 61);
-            this.tbMinY.Multiline = true;
-            this.tbMinY.Name = "tbMinY";
-            this.tbMinY.ReadOnly = true;
-            this.tbMinY.Size = new System.Drawing.Size(46, 20);
-            this.tbMinY.TabIndex = 154;
-            this.tbMinY.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.tbMaxX.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbMaxX.BorderStyle = BorderStyle.None;
-            this.tbMaxX.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbMaxX.ForeColor = System.Drawing.Color.Black;
-            this.tbMaxX.Location = new System.Drawing.Point(73, 35);
-            this.tbMaxX.Multiline = true;
-            this.tbMaxX.Name = "tbMaxX";
-            this.tbMaxX.ReadOnly = true;
-            this.tbMaxX.Size = new System.Drawing.Size(44, 20);
-            this.tbMaxX.TabIndex = 153;
-            this.tbMaxX.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.btSave.DialogResult = DialogResult.Cancel;
-            this.btSave.Location = new System.Drawing.Point(11, 176);
-            this.btSave.Name = "btSave";
-            this.btSave.Size = new System.Drawing.Size(110, 23);
-            this.btSave.TabIndex = 151;
-            this.btSave.Text = "Save Calibration";
-            this.btSave.UseVisualStyleBackColor = true;
-            this.btSave.Click += new EventHandler(this.btSave_Click);
-            this.tabControl1.Controls.Add((Control)this.tabPage1);
-            this.tabControl1.Controls.Add((Control)this.tabPage2);
-            this.tabControl1.Location = new System.Drawing.Point(309, 102);
-            this.tabControl1.Name = "tabControl1";
-            this.tabControl1.SelectedIndex = 0;
-            this.tabControl1.Size = new System.Drawing.Size(335, 553);
-            this.tabControl1.TabIndex = 154;
-            this.tabPage1.Controls.Add((Control)this.tbTemps);
-            this.tabPage1.Controls.Add((Control)this.lbAxis1);
-            this.tabPage1.Controls.Add((Control)this.lbAxis3);
-            this.tabPage1.Controls.Add((Control)this.tbMonitor);
-            this.tabPage1.Controls.Add((Control)this.lbAxis4);
-            this.tabPage1.Controls.Add((Control)this.lbTemps);
-            this.tabPage1.Controls.Add((Control)this.lbAxis2);
-            this.tabPage1.Controls.Add((Control)this.elementHost1);
-            this.tabPage1.Location = new System.Drawing.Point(4, 24);
-            this.tabPage1.Name = "tabPage1";
-            this.tabPage1.Padding = new Padding(3);
-            this.tabPage1.Size = new System.Drawing.Size(327, 525);
-            this.tabPage1.TabIndex = 0;
-            this.tabPage1.Text = "Head";
-            this.tabPage1.UseVisualStyleBackColor = true;
-            this.elementHost1.BackColor = System.Drawing.SystemColors.GradientActiveCaption;
-            this.elementHost1.CausesValidation = false;
-            this.elementHost1.Enabled = false;
-            this.elementHost1.ForeColor = System.Drawing.Color.FloralWhite;
-            this.elementHost1.Location = new System.Drawing.Point(6, 10);
-            this.elementHost1.Name = "elementHost1";
-            this.elementHost1.Size = new System.Drawing.Size(314, 343);
-            this.elementHost1.TabIndex = 30;
-            this.elementHost1.Text = "elementHost1";
-            this.elementHost1.Child = (UIElement)this.edtracker1;
-            this.tabPage2.Controls.Add((Control)this.groupBox2);
-            this.tabPage2.Controls.Add((Control)this.gbMagCalib);
-            this.tabPage2.Controls.Add((Control)this.elementHost2);
-            this.tabPage2.Location = new System.Drawing.Point(4, 22);
-            this.tabPage2.Name = "tabPage2";
-            this.tabPage2.Padding = new Padding(3);
-            this.tabPage2.Size = new System.Drawing.Size(327, 527);
-            this.tabPage2.TabIndex = 1;
-            this.tabPage2.Text = "Magnetometer";
-            this.tabPage2.UseVisualStyleBackColor = true;
-            this.groupBox2.CausesValidation = false;
-            this.groupBox2.Controls.Add((Control)this.tbMagMat9);
-            this.groupBox2.Controls.Add((Control)this.tbMagMat8);
-            this.groupBox2.Controls.Add((Control)this.tbMagMat7);
-            this.groupBox2.Controls.Add((Control)this.tbMagMat6);
-            this.groupBox2.Controls.Add((Control)this.tbMagMat5);
-            this.groupBox2.Controls.Add((Control)this.tbMagMat4);
-            this.groupBox2.Controls.Add((Control)this.tbMagMat1);
-            this.groupBox2.Controls.Add((Control)this.tbMagMat2);
-            this.groupBox2.Controls.Add((Control)this.tbMagMat3);
-            this.groupBox2.Controls.Add((Control)this.btSave);
-            this.groupBox2.Location = new System.Drawing.Point(186, 315);
-            this.groupBox2.Name = "groupBox2";
-            this.groupBox2.Size = new System.Drawing.Size(134, 205);
-            this.groupBox2.TabIndex = 154;
-            this.groupBox2.TabStop = false;
-            this.groupBox2.Text = "Matrix";
-            this.tbMagMat9.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbMagMat9.BorderStyle = BorderStyle.None;
-            this.tbMagMat9.CausesValidation = false;
-            this.tbMagMat9.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbMagMat9.ForeColor = System.Drawing.Color.Black;
-            this.tbMagMat9.Location = new System.Drawing.Point(92, 80);
-            this.tbMagMat9.Multiline = true;
-            this.tbMagMat9.Name = "tbMagMat9";
-            this.tbMagMat9.ReadOnly = true;
-            this.tbMagMat9.Size = new System.Drawing.Size(39, 20);
-            this.tbMagMat9.TabIndex = 162;
-            this.tbMagMat9.TabStop = false;
-            this.tbMagMat9.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.tbMagMat8.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbMagMat8.BorderStyle = BorderStyle.None;
-            this.tbMagMat8.CausesValidation = false;
-            this.tbMagMat8.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbMagMat8.ForeColor = System.Drawing.Color.Black;
-            this.tbMagMat8.Location = new System.Drawing.Point(49, 80);
-            this.tbMagMat8.Multiline = true;
-            this.tbMagMat8.Name = "tbMagMat8";
-            this.tbMagMat8.ReadOnly = true;
-            this.tbMagMat8.Size = new System.Drawing.Size(39, 20);
-            this.tbMagMat8.TabIndex = 161;
-            this.tbMagMat8.TabStop = false;
-            this.tbMagMat8.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.tbMagMat7.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbMagMat7.BorderStyle = BorderStyle.None;
-            this.tbMagMat7.CausesValidation = false;
-            this.tbMagMat7.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbMagMat7.ForeColor = System.Drawing.Color.Black;
-            this.tbMagMat7.Location = new System.Drawing.Point(6, 80);
-            this.tbMagMat7.Multiline = true;
-            this.tbMagMat7.Name = "tbMagMat7";
-            this.tbMagMat7.ReadOnly = true;
-            this.tbMagMat7.Size = new System.Drawing.Size(39, 20);
-            this.tbMagMat7.TabIndex = 160;
-            this.tbMagMat7.TabStop = false;
-            this.tbMagMat7.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.tbMagMat6.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbMagMat6.BorderStyle = BorderStyle.None;
-            this.tbMagMat6.CausesValidation = false;
-            this.tbMagMat6.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbMagMat6.ForeColor = System.Drawing.Color.Black;
-            this.tbMagMat6.Location = new System.Drawing.Point(92, 54);
-            this.tbMagMat6.Multiline = true;
-            this.tbMagMat6.Name = "tbMagMat6";
-            this.tbMagMat6.ReadOnly = true;
-            this.tbMagMat6.Size = new System.Drawing.Size(39, 20);
-            this.tbMagMat6.TabIndex = 159;
-            this.tbMagMat6.TabStop = false;
-            this.tbMagMat6.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.tbMagMat5.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbMagMat5.BorderStyle = BorderStyle.None;
-            this.tbMagMat5.CausesValidation = false;
-            this.tbMagMat5.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbMagMat5.ForeColor = System.Drawing.Color.Black;
-            this.tbMagMat5.Location = new System.Drawing.Point(49, 54);
-            this.tbMagMat5.Multiline = true;
-            this.tbMagMat5.Name = "tbMagMat5";
-            this.tbMagMat5.ReadOnly = true;
-            this.tbMagMat5.Size = new System.Drawing.Size(39, 20);
-            this.tbMagMat5.TabIndex = 158;
-            this.tbMagMat5.TabStop = false;
-            this.tbMagMat5.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.tbMagMat4.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbMagMat4.BorderStyle = BorderStyle.None;
-            this.tbMagMat4.CausesValidation = false;
-            this.tbMagMat4.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbMagMat4.ForeColor = System.Drawing.Color.Black;
-            this.tbMagMat4.Location = new System.Drawing.Point(6, 54);
-            this.tbMagMat4.Multiline = true;
-            this.tbMagMat4.Name = "tbMagMat4";
-            this.tbMagMat4.ReadOnly = true;
-            this.tbMagMat4.Size = new System.Drawing.Size(39, 20);
-            this.tbMagMat4.TabIndex = 157;
-            this.tbMagMat4.TabStop = false;
-            this.tbMagMat4.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.tbMagMat1.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbMagMat1.BorderStyle = BorderStyle.None;
-            this.tbMagMat1.CausesValidation = false;
-            this.tbMagMat1.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbMagMat1.ForeColor = System.Drawing.Color.Black;
-            this.tbMagMat1.Location = new System.Drawing.Point(6, 28);
-            this.tbMagMat1.Multiline = true;
-            this.tbMagMat1.Name = "tbMagMat1";
-            this.tbMagMat1.ReadOnly = true;
-            this.tbMagMat1.Size = new System.Drawing.Size(39, 20);
-            this.tbMagMat1.TabIndex = 0;
-            this.tbMagMat1.TabStop = false;
-            this.tbMagMat1.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.tbMagMat2.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbMagMat2.BorderStyle = BorderStyle.None;
-            this.tbMagMat2.CausesValidation = false;
-            this.tbMagMat2.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbMagMat2.ForeColor = System.Drawing.Color.Black;
-            this.tbMagMat2.Location = new System.Drawing.Point(49, 28);
-            this.tbMagMat2.Multiline = true;
-            this.tbMagMat2.Name = "tbMagMat2";
-            this.tbMagMat2.ReadOnly = true;
-            this.tbMagMat2.Size = new System.Drawing.Size(39, 20);
-            this.tbMagMat2.TabIndex = 155;
-            this.tbMagMat2.TabStop = false;
-            this.tbMagMat2.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.tbMagMat3.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbMagMat3.BorderStyle = BorderStyle.None;
-            this.tbMagMat3.CausesValidation = false;
-            this.tbMagMat3.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.tbMagMat3.ForeColor = System.Drawing.Color.Black;
-            this.tbMagMat3.Location = new System.Drawing.Point(92, 28);
-            this.tbMagMat3.Multiline = true;
-            this.tbMagMat3.Name = "tbMagMat3";
-            this.tbMagMat3.ReadOnly = true;
-            this.tbMagMat3.Size = new System.Drawing.Size(39, 20);
-            this.tbMagMat3.TabIndex = 159;
-            this.tbMagMat3.TabStop = false;
-            this.tbMagMat3.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.elementHost2.BackColor = System.Drawing.Color.White;
-            this.elementHost2.CausesValidation = false;
-            this.elementHost2.ImeMode = ImeMode.NoControl;
-            this.elementHost2.Location = new System.Drawing.Point(6, 6);
-            this.elementHost2.Name = "elementHost2";
-            this.elementHost2.Size = new System.Drawing.Size(315, 300);
-            this.elementHost2.TabIndex = 153;
-            this.elementHost2.Text = "elementHost2";
-            this.elementHost2.Child = (UIElement)this.magCloud1;
-            this.gbMagGyro.Controls.Add((Control)this.btMagResetView);
-            this.gbMagGyro.Controls.Add((Control)this.btMagAutoBias);
-            this.gbMagGyro.Controls.Add((Control)this.tbGyroX);
-            this.gbMagGyro.Controls.Add((Control)this.lbGX);
-            this.gbMagGyro.Controls.Add((Control)this.tbGyroZ);
-            this.gbMagGyro.Controls.Add((Control)this.tbGyroY);
-            this.gbMagGyro.Cursor = Cursors.Default;
-            this.gbMagGyro.Location = new System.Drawing.Point(181, 269);
-            this.gbMagGyro.Name = "gbMagGyro";
-            this.gbMagGyro.Size = new System.Drawing.Size(293, 124);
-            this.gbMagGyro.TabIndex = 157;
-            this.gbMagGyro.TabStop = false;
-            this.gbMagGyro.Text = "Auto Gyro Bias";
-            this.btMagResetView.BackColor = System.Drawing.SystemColors.ButtonFace;
-            this.btMagResetView.BackgroundImageLayout = ImageLayout.None;
-            this.btMagResetView.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.btMagResetView.FlatAppearance.BorderSize = 2;
-            this.btMagResetView.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.btMagResetView.Location = new System.Drawing.Point(7, 24);
-            this.btMagResetView.Margin = new Padding(2, 3, 2, 3);
-            this.btMagResetView.Name = "btMagResetView";
-            this.btMagResetView.Size = new System.Drawing.Size(173, 23);
-            this.btMagResetView.TabIndex = 168;
-            this.btMagResetView.Text = "Reset View";
-            this.btMagResetView.TextImageRelation = TextImageRelation.TextBeforeImage;
-            this.btMagResetView.UseVisualStyleBackColor = true;
-            this.btMagResetView.Click += new EventHandler(this.btMagResetView_Click);
-            this.btMagAutoBias.BackColor = System.Drawing.SystemColors.ButtonFace;
-            this.btMagAutoBias.FlatAppearance.BorderColor = System.Drawing.Color.MidnightBlue;
-            this.btMagAutoBias.FlatAppearance.BorderSize = 2;
-            this.btMagAutoBias.FlatAppearance.MouseOverBackColor = System.Drawing.Color.CornflowerBlue;
-            this.btMagAutoBias.Location = new System.Drawing.Point(7, 53);
-            this.btMagAutoBias.Margin = new Padding(2, 3, 2, 3);
-            this.btMagAutoBias.Name = "btMagAutoBias";
-            this.btMagAutoBias.Size = new System.Drawing.Size(173, 23);
-            this.btMagAutoBias.TabIndex = 167;
-            this.btMagAutoBias.Text = "Auto Gyro Bias";
-            this.btMagAutoBias.UseVisualStyleBackColor = true;
-            this.btMagAutoBias.Click += new EventHandler(this.btMagAutoBias_Click);
-            this.tbGyroX.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbGyroX.Location = new System.Drawing.Point(48, 85);
-            this.tbGyroX.Name = "tbGyroX";
-            this.tbGyroX.ReadOnly = true;
-            this.tbGyroX.Size = new System.Drawing.Size(39, 21);
-            this.tbGyroX.TabIndex = 166;
-            this.tbGyroX.Text = "0";
-            this.tbGyroX.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.lbGX.AutoSize = true;
-            this.lbGX.Location = new System.Drawing.Point(12, 87);
-            this.lbGX.Name = "lbGX";
-            this.lbGX.Size = new System.Drawing.Size(32, 15);
-            this.lbGX.TabIndex = 165;
-            this.lbGX.Text = "Gyro";
-            this.lbGX.TextAlign = ContentAlignment.MiddleRight;
-            this.tbGyroZ.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbGyroZ.Location = new System.Drawing.Point(137, 85);
-            this.tbGyroZ.Name = "tbGyroZ";
-            this.tbGyroZ.ReadOnly = true;
-            this.tbGyroZ.Size = new System.Drawing.Size(39, 21);
-            this.tbGyroZ.TabIndex = 164;
-            this.tbGyroZ.Text = "0";
-            this.tbGyroZ.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.tbGyroY.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.tbGyroY.Location = new System.Drawing.Point(92, 85);
-            this.tbGyroY.Name = "tbGyroY";
-            this.tbGyroY.ReadOnly = true;
-            this.tbGyroY.Size = new System.Drawing.Size(39, 21);
-            this.tbGyroY.TabIndex = 162;
-            this.tbGyroY.Text = "0";
-            this.tbGyroY.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
-            this.AutoScaleMode = AutoScaleMode.None;
-            this.BackColor = System.Drawing.SystemColors.InactiveCaption;
-            this.BackgroundImageLayout = ImageLayout.Center;
-            this.ClientSize = new System.Drawing.Size(654, 662);
-            this.Controls.Add((Control)this.gbMagGyro);
-            this.Controls.Add((Control)this.tabControl1);
-            this.Controls.Add((Control)this.gbHotKey);
-            this.Controls.Add((Control)this.gbScaling);
-            this.Controls.Add((Control)this.gbDriftComp);
-            this.Controls.Add((Control)this.tbSketch);
-            this.Controls.Add((Control)this.bMonitor);
-            this.Controls.Add((Control)this.bWipeAll);
-            this.Controls.Add((Control)this.groupBox1);
-            this.Controls.Add((Control)this.gbBias);
-            this.Controls.Add((Control)this.gbTrackerConfig);
-            this.Controls.Add((Control)this.menuStrip1);
-            this.Font = new Font("Arial", 9f, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, (byte)0);
-            this.FormBorderStyle = FormBorderStyle.FixedSingle;
-            this.HelpButton = true;
-            this.Icon = (Icon)componentResourceManager.GetObject("$this.Icon");
-            this.MainMenuStrip = this.menuStrip1;
-            this.Margin = new Padding(4, 5, 4, 5);
-            this.MaximizeBox = false;
-            this.MaximumSize = new System.Drawing.Size(670, 700);
-            this.MinimumSize = new System.Drawing.Size(670, 700);
-            this.Name = nameof(Form1);
-            this.StartPosition = FormStartPosition.CenterParent;
-            this.Text = "EDTracker UI";
-            this.groupBox1.ResumeLayout(false);
-            this.gbBias.ResumeLayout(false);
-            this.gbBias.PerformLayout();
-            this.gbHotKey.ResumeLayout(false);
-            this.gbHotKey.PerformLayout();
-            this.gbTrackerConfig.ResumeLayout(false);
-            this.gbTrackerConfig.PerformLayout();
-            this.gbDriftComp.ResumeLayout(false);
-            this.gbDriftComp.PerformLayout();
-            this.gbScaling.ResumeLayout(false);
-            this.gbScaling.PerformLayout();
-            this.sliderSmoothing.EndInit();
-            this.menuStrip1.ResumeLayout(false);
-            this.menuStrip1.PerformLayout();
-            this.gbMagCalib.ResumeLayout(false);
-            this.gbMagCalib.PerformLayout();
-            this.tbarMagSens.EndInit();
-            this.tabControl1.ResumeLayout(false);
-            this.tabPage1.ResumeLayout(false);
-            this.tabPage1.PerformLayout();
-            this.tabPage2.ResumeLayout(false);
-            this.groupBox2.ResumeLayout(false);
-            this.groupBox2.PerformLayout();
-            this.gbMagGyro.ResumeLayout(false);
-            this.gbMagGyro.PerformLayout();
-            this.ResumeLayout(false);
-            this.PerformLayout();
+            components = new Container();
+            bWipeAll = new Button();
+            cbSketches = new ComboBox();
+            cbPort = new ComboBox();
+            bFlash = new Button();
+            groupBox1 = new GroupBox();
+            bScanPorts = new Button();
+            bMonitor = new Button();
+            gbBias = new GroupBox();
+            biasAX = new TextBox();
+            axminus = new Button();
+            axplus = new Button();
+            udAX = new TextBox();
+            label5 = new Label();
+            biasAY = new TextBox();
+            ayminus = new Button();
+            ayplus = new Button();
+            udAY = new TextBox();
+            label6 = new Label();
+            biasAZ = new TextBox();
+            azminus = new Button();
+            azplus = new Button();
+            udAZ = new TextBox();
+            label7 = new Label();
+            biasGZ = new TextBox();
+            gzminus = new Button();
+            gzplus = new Button();
+            udGZ = new TextBox();
+            label4 = new Label();
+            biasGY = new TextBox();
+            gyminus = new Button();
+            gyplus = new Button();
+            udGY = new TextBox();
+            label3 = new Label();
+            biasGX = new TextBox();
+            gxminus = new Button();
+            udGX = new TextBox();
+            gxplus = new Button();
+            label2 = new Label();
+            bCalcBias = new Button();
+            gbHotKey = new GroupBox();
+            btEnableAC = new Button();
+            tbAutoCentre = new TextBox();
+            btToggleAutoCentre = new Button();
+            cbHKey = new ComboBox();
+            cbCOntrollerButtons = new ComboBox();
+            cbControllerButton = new CheckBox();
+            cbHotKey = new CheckBox();
+            gbTrackerConfig = new GroupBox();
+            bOrientate = new Button();
+            tbOrientation = new TextBox();
+            bSensorMode = new Button();
+            tbSensorMode = new TextBox();
+            tbSketch = new TextBox();
+            gbDriftComp = new GroupBox();
+            lbTimer = new Label();
+            tbTime = new TextBox();
+            bSaveDriftComp = new Button();
+            bResetView = new Button();
+            tbDriftComp = new TextBox();
+            lbComp = new Label();
+            tbYawDrift = new TextBox();
+            lbYawDrift = new Label();
+            btCompDown = new Button();
+            btCompUp = new Button();
+            gbScaling = new GroupBox();
+            tbSmoothing = new TextBox();
+            lbSmooth = new Label();
+            sliderSmoothing = new TrackBar();
+            tbRespMode = new TextBox();
+            bRespMode = new Button();
+            tbPitchScaling = new TextBox();
+            label11 = new Label();
+            tbYawScaling = new TextBox();
+            label10 = new Label();
+            cbFineAdjust = new CheckBox();
+            btYawScaleDown = new Button();
+            btPitchScaleDown = new Button();
+            btPitchScaleUp = new Button();
+            btYawScaleUp = new Button();
+            tbTemps = new TextBox();
+            lbTemps = new Label();
+            tbMonitor = new TextBox();
+            notifyIcon1 = new NotifyIcon(components);
+            lbAxis4 = new Label();
+            lbAxis3 = new Label();
+            lbAxis2 = new Label();
+            lbAxis1 = new Label();
+            menuStrip1 = new MenuStrip();
+            toolStripMenuItem1 = new ToolStripMenuItem();
+            aboutToolStripMenuItem = new ToolStripMenuItem();
+            modeToolStripMenuItem = new ToolStripMenuItem();
+            uSERToolStripMenuItem = new ToolStripMenuItem();
+            tESTToolStripMenuItem = new ToolStripMenuItem();
+            dEVToolStripMenuItem = new ToolStripMenuItem();
+            Help = new ToolStripMenuItem();
+            debugToolStripMenuItem = new ToolStripMenuItem();
+            showToolStripMenuItem = new ToolStripMenuItem();
+            hideToolStripMenuItem = new ToolStripMenuItem();
+            timer1 = new System.Windows.Forms.Timer(components);
+            gbMagCalib = new GroupBox();
+            label1 = new Label();
+            tbOffZ = new TextBox();
+            tbOffY = new TextBox();
+            tbOffX = new TextBox();
+            label18 = new Label();
+            tbarMagSens = new TrackBar();
+            button1 = new Button();
+            label16 = new Label();
+            tbMagSamples = new TextBox();
+            tbMinX = new TextBox();
+            label9 = new Label();
+            label12 = new Label();
+            label13 = new Label();
+            label14 = new Label();
+            label15 = new Label();
+            tbMaxZ = new TextBox();
+            tbMinZ = new TextBox();
+            tbMaxY = new TextBox();
+            tbMinY = new TextBox();
+            tbMaxX = new TextBox();
+            btSave = new Button();
+            tabControl1 = new TabControl();
+            tabPage1 = new TabPage();
+            elementHost1 = new ElementHost();
+            tabPage2 = new TabPage();
+            groupBox2 = new GroupBox();
+            tbMagMat9 = new TextBox();
+            tbMagMat8 = new TextBox();
+            tbMagMat7 = new TextBox();
+            tbMagMat6 = new TextBox();
+            tbMagMat5 = new TextBox();
+            tbMagMat4 = new TextBox();
+            tbMagMat1 = new TextBox();
+            tbMagMat2 = new TextBox();
+            tbMagMat3 = new TextBox();
+            elementHost2 = new ElementHost();
+            gbMagGyro = new GroupBox();
+            btMagResetView = new Button();
+            btMagAutoBias = new Button();
+            tbGyroX = new TextBox();
+            lbGX = new Label();
+            tbGyroZ = new TextBox();
+            tbGyroY = new TextBox();
+            groupBox1.SuspendLayout();
+            gbBias.SuspendLayout();
+            gbHotKey.SuspendLayout();
+            gbTrackerConfig.SuspendLayout();
+            gbDriftComp.SuspendLayout();
+            gbScaling.SuspendLayout();
+            ((ISupportInitialize)sliderSmoothing).BeginInit();
+            menuStrip1.SuspendLayout();
+            gbMagCalib.SuspendLayout();
+            ((ISupportInitialize)tbarMagSens).BeginInit();
+            tabControl1.SuspendLayout();
+            tabPage1.SuspendLayout();
+            tabPage2.SuspendLayout();
+            groupBox2.SuspendLayout();
+            gbMagGyro.SuspendLayout();
+            SuspendLayout();
+            // 
+            // bWipeAll
+            // 
+            bWipeAll.BackColor = System.Drawing.SystemColors.InactiveCaption;
+            bWipeAll.FlatAppearance.BorderColor = System.Drawing.SystemColors.ButtonHighlight;
+            bWipeAll.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            bWipeAll.ForeColor = Color.Black;
+            bWipeAll.Location = new System.Drawing.Point(17, 627);
+            bWipeAll.Margin = new Padding(2, 3, 2, 3);
+            bWipeAll.Name = "bWipeAll";
+            bWipeAll.Size = new System.Drawing.Size(173, 23);
+            bWipeAll.TabIndex = 9;
+            bWipeAll.Text = "Restore Factory Defaults";
+            bWipeAll.UseVisualStyleBackColor = true;
+            bWipeAll.Click += bWipeAll_Click;
+            // 
+            // cbSketches
+            // 
+            cbSketches.BackColor = System.Drawing.SystemColors.Window;
+            cbSketches.DisplayMember = "0";
+            cbSketches.DropDownStyle = ComboBoxStyle.DropDownList;
+            cbSketches.Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            cbSketches.Items.AddRange(new object[] { "Select Sketch..." });
+            cbSketches.Location = new System.Drawing.Point(6, 19);
+            cbSketches.Name = "cbSketches";
+            cbSketches.Size = new System.Drawing.Size(271, 23);
+            cbSketches.TabIndex = 53;
+            cbSketches.SelectedIndexChanged += cbSketches_SelectedIndexChanged;
+            // 
+            // cbPort
+            // 
+            cbPort.DropDownStyle = ComboBoxStyle.DropDownList;
+            cbPort.Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            cbPort.Items.AddRange(new object[] { "Retrieving COM Ports..." });
+            cbPort.Location = new System.Drawing.Point(6, 47);
+            cbPort.Name = "cbPort";
+            cbPort.Size = new System.Drawing.Size(271, 23);
+            cbPort.TabIndex = 55;
+            // 
+            // bFlash
+            // 
+            bFlash.BackColor = System.Drawing.SystemColors.ButtonFace;
+            bFlash.Enabled = false;
+            bFlash.FlatAppearance.BorderColor = Color.MidnightBlue;
+            bFlash.FlatAppearance.BorderSize = 2;
+            bFlash.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            bFlash.Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            bFlash.Location = new System.Drawing.Point(6, 75);
+            bFlash.Margin = new Padding(2, 3, 2, 3);
+            bFlash.Name = "bFlash";
+            bFlash.Size = new System.Drawing.Size(172, 23);
+            bFlash.TabIndex = 57;
+            bFlash.Text = "Flash";
+            bFlash.UseVisualStyleBackColor = true;
+            bFlash.Click += bFlash_Click;
+            // 
+            // groupBox1
+            // 
+            groupBox1.Controls.Add(bScanPorts);
+            groupBox1.Controls.Add(cbSketches);
+            groupBox1.Controls.Add(bFlash);
+            groupBox1.Controls.Add(cbPort);
+            groupBox1.Location = new System.Drawing.Point(3, 27);
+            groupBox1.Name = "groupBox1";
+            groupBox1.Size = new System.Drawing.Size(292, 107);
+            groupBox1.TabIndex = 58;
+            groupBox1.TabStop = false;
+            groupBox1.Text = "Program EDTracker";
+            // 
+            // bScanPorts
+            // 
+            bScanPorts.BackColor = System.Drawing.SystemColors.ButtonFace;
+            bScanPorts.FlatAppearance.BorderColor = Color.MidnightBlue;
+            bScanPorts.FlatAppearance.BorderSize = 2;
+            bScanPorts.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            bScanPorts.Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            bScanPorts.Location = new System.Drawing.Point(185, 75);
+            bScanPorts.Margin = new Padding(2, 3, 2, 3);
+            bScanPorts.Name = "bScanPorts";
+            bScanPorts.Size = new System.Drawing.Size(92, 23);
+            bScanPorts.TabIndex = 58;
+            bScanPorts.Text = "Scan Ports";
+            bScanPorts.UseVisualStyleBackColor = true;
+            bScanPorts.Click += bScanPorts_Click;
+            // 
+            // bMonitor
+            // 
+            bMonitor.BackColor = System.Drawing.SystemColors.ButtonFace;
+            bMonitor.BackgroundImageLayout = ImageLayout.None;
+            bMonitor.FlatAppearance.BorderColor = Color.MidnightBlue;
+            bMonitor.FlatAppearance.BorderSize = 2;
+            bMonitor.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            bMonitor.Font = new Font("Arial", 11F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            bMonitor.Location = new System.Drawing.Point(309, 65);
+            bMonitor.Margin = new Padding(2, 3, 2, 3);
+            bMonitor.Name = "bMonitor";
+            bMonitor.Size = new System.Drawing.Size(315, 31);
+            bMonitor.TabIndex = 60;
+            bMonitor.Text = "Connect to Tracker";
+            bMonitor.UseVisualStyleBackColor = true;
+            bMonitor.Click += bMonitor_Click;
+            // 
+            // gbBias
+            // 
+            gbBias.Controls.Add(biasAX);
+            gbBias.Controls.Add(axminus);
+            gbBias.Controls.Add(axplus);
+            gbBias.Controls.Add(udAX);
+            gbBias.Controls.Add(label5);
+            gbBias.Controls.Add(biasAY);
+            gbBias.Controls.Add(ayminus);
+            gbBias.Controls.Add(ayplus);
+            gbBias.Controls.Add(udAY);
+            gbBias.Controls.Add(label6);
+            gbBias.Controls.Add(biasAZ);
+            gbBias.Controls.Add(azminus);
+            gbBias.Controls.Add(azplus);
+            gbBias.Controls.Add(udAZ);
+            gbBias.Controls.Add(label7);
+            gbBias.Controls.Add(biasGZ);
+            gbBias.Controls.Add(gzminus);
+            gbBias.Controls.Add(gzplus);
+            gbBias.Controls.Add(udGZ);
+            gbBias.Controls.Add(label4);
+            gbBias.Controls.Add(biasGY);
+            gbBias.Controls.Add(gyminus);
+            gbBias.Controls.Add(gyplus);
+            gbBias.Controls.Add(udGY);
+            gbBias.Controls.Add(label3);
+            gbBias.Controls.Add(biasGX);
+            gbBias.Controls.Add(gxminus);
+            gbBias.Controls.Add(udGX);
+            gbBias.Controls.Add(gxplus);
+            gbBias.Controls.Add(label2);
+            gbBias.Controls.Add(bCalcBias);
+            gbBias.Location = new System.Drawing.Point(3, 229);
+            gbBias.Name = "gbBias";
+            gbBias.Size = new System.Drawing.Size(218, 210);
+            gbBias.TabIndex = 88;
+            gbBias.TabStop = false;
+            gbBias.Text = "Bias Value";
+            // 
+            // biasAX
+            // 
+            biasAX.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            biasAX.Location = new System.Drawing.Point(68, 100);
+            biasAX.Name = "biasAX";
+            biasAX.ReadOnly = true;
+            biasAX.Size = new System.Drawing.Size(39, 21);
+            biasAX.TabIndex = 140;
+            biasAX.Text = "0";
+            biasAX.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // axminus
+            // 
+            axminus.BackColor = Color.Azure;
+            axminus.FlatAppearance.BorderColor = Color.MidnightBlue;
+            axminus.FlatAppearance.BorderSize = 2;
+            axminus.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            axminus.FlatStyle = FlatStyle.Flat;
+            axminus.Location = new System.Drawing.Point(136, 99);
+            axminus.Margin = new Padding(2, 3, 2, 3);
+            axminus.Name = "axminus";
+            axminus.Size = new System.Drawing.Size(20, 23);
+            axminus.TabIndex = 139;
+            axminus.Text = "-";
+            axminus.UseVisualStyleBackColor = false;
+            axminus.Click += axminus_Click_1;
+            // 
+            // axplus
+            // 
+            axplus.BackColor = Color.Azure;
+            axplus.FlatAppearance.BorderColor = Color.MidnightBlue;
+            axplus.FlatAppearance.BorderSize = 2;
+            axplus.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            axplus.FlatStyle = FlatStyle.Flat;
+            axplus.Location = new System.Drawing.Point(112, 99);
+            axplus.Margin = new Padding(2, 3, 2, 3);
+            axplus.Name = "axplus";
+            axplus.Size = new System.Drawing.Size(20, 23);
+            axplus.TabIndex = 138;
+            axplus.Text = "+";
+            axplus.TextAlign = ContentAlignment.TopCenter;
+            axplus.UseVisualStyleBackColor = false;
+            axplus.Click += axplus_Click_1;
+            // 
+            // udAX
+            // 
+            udAX.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            udAX.Location = new System.Drawing.Point(160, 100);
+            udAX.Name = "udAX";
+            udAX.ReadOnly = true;
+            udAX.Size = new System.Drawing.Size(39, 21);
+            udAX.TabIndex = 137;
+            udAX.Text = "0";
+            udAX.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // label5
+            // 
+            label5.AutoSize = true;
+            label5.BackColor = Color.GhostWhite;
+            label5.Location = new System.Drawing.Point(17, 103);
+            label5.Name = "label5";
+            label5.Size = new System.Drawing.Size(46, 15);
+            label5.TabIndex = 136;
+            label5.Text = "Accel X";
+            // 
+            // biasAY
+            // 
+            biasAY.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            biasAY.Location = new System.Drawing.Point(68, 128);
+            biasAY.Name = "biasAY";
+            biasAY.ReadOnly = true;
+            biasAY.Size = new System.Drawing.Size(39, 21);
+            biasAY.TabIndex = 135;
+            biasAY.Text = "0";
+            biasAY.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // ayminus
+            // 
+            ayminus.BackColor = Color.Azure;
+            ayminus.FlatAppearance.BorderColor = Color.MidnightBlue;
+            ayminus.FlatAppearance.BorderSize = 2;
+            ayminus.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            ayminus.FlatStyle = FlatStyle.Flat;
+            ayminus.Location = new System.Drawing.Point(136, 127);
+            ayminus.Margin = new Padding(2, 3, 2, 3);
+            ayminus.Name = "ayminus";
+            ayminus.Size = new System.Drawing.Size(20, 23);
+            ayminus.TabIndex = 134;
+            ayminus.Text = "-";
+            ayminus.UseVisualStyleBackColor = false;
+            ayminus.Click += ayminus_Click_1;
+            // 
+            // ayplus
+            // 
+            ayplus.BackColor = Color.Azure;
+            ayplus.FlatAppearance.BorderColor = Color.MidnightBlue;
+            ayplus.FlatAppearance.BorderSize = 2;
+            ayplus.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            ayplus.FlatStyle = FlatStyle.Flat;
+            ayplus.Location = new System.Drawing.Point(112, 127);
+            ayplus.Margin = new Padding(2, 3, 2, 3);
+            ayplus.Name = "ayplus";
+            ayplus.Size = new System.Drawing.Size(20, 23);
+            ayplus.TabIndex = 133;
+            ayplus.Text = "+";
+            ayplus.TextAlign = ContentAlignment.TopCenter;
+            ayplus.UseVisualStyleBackColor = false;
+            ayplus.Click += ayplus_Click_1;
+            // 
+            // udAY
+            // 
+            udAY.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            udAY.Location = new System.Drawing.Point(160, 128);
+            udAY.Name = "udAY";
+            udAY.ReadOnly = true;
+            udAY.Size = new System.Drawing.Size(39, 21);
+            udAY.TabIndex = 132;
+            udAY.Text = "0";
+            udAY.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // label6
+            // 
+            label6.AutoSize = true;
+            label6.BackColor = Color.GhostWhite;
+            label6.Location = new System.Drawing.Point(17, 131);
+            label6.Name = "label6";
+            label6.Size = new System.Drawing.Size(46, 15);
+            label6.TabIndex = 131;
+            label6.Text = "Accel Y";
+            // 
+            // biasAZ
+            // 
+            biasAZ.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            biasAZ.Location = new System.Drawing.Point(68, 156);
+            biasAZ.Name = "biasAZ";
+            biasAZ.ReadOnly = true;
+            biasAZ.Size = new System.Drawing.Size(39, 21);
+            biasAZ.TabIndex = 130;
+            biasAZ.Text = "0";
+            biasAZ.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // azminus
+            // 
+            azminus.BackColor = Color.Azure;
+            azminus.FlatAppearance.BorderColor = Color.MidnightBlue;
+            azminus.FlatAppearance.BorderSize = 2;
+            azminus.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            azminus.FlatStyle = FlatStyle.Flat;
+            azminus.Location = new System.Drawing.Point(136, 155);
+            azminus.Margin = new Padding(2, 3, 2, 3);
+            azminus.Name = "azminus";
+            azminus.Size = new System.Drawing.Size(20, 23);
+            azminus.TabIndex = 129;
+            azminus.Text = "-";
+            azminus.UseVisualStyleBackColor = false;
+            azminus.Click += azminus_Click_1;
+            // 
+            // azplus
+            // 
+            azplus.BackColor = Color.Azure;
+            azplus.FlatAppearance.BorderColor = Color.MidnightBlue;
+            azplus.FlatAppearance.BorderSize = 2;
+            azplus.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            azplus.FlatStyle = FlatStyle.Flat;
+            azplus.Location = new System.Drawing.Point(112, 155);
+            azplus.Margin = new Padding(2, 3, 2, 3);
+            azplus.Name = "azplus";
+            azplus.Size = new System.Drawing.Size(20, 23);
+            azplus.TabIndex = 128;
+            azplus.Text = "+";
+            azplus.TextAlign = ContentAlignment.TopCenter;
+            azplus.UseVisualStyleBackColor = false;
+            azplus.Click += azplus_Click_1;
+            // 
+            // udAZ
+            // 
+            udAZ.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            udAZ.Location = new System.Drawing.Point(160, 156);
+            udAZ.Name = "udAZ";
+            udAZ.ReadOnly = true;
+            udAZ.Size = new System.Drawing.Size(39, 21);
+            udAZ.TabIndex = 127;
+            udAZ.Text = "0";
+            udAZ.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // label7
+            // 
+            label7.AutoSize = true;
+            label7.BackColor = Color.GhostWhite;
+            label7.Location = new System.Drawing.Point(17, 159);
+            label7.Name = "label7";
+            label7.Size = new System.Drawing.Size(46, 15);
+            label7.TabIndex = 126;
+            label7.Text = "Accel Z";
+            // 
+            // biasGZ
+            // 
+            biasGZ.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            biasGZ.Location = new System.Drawing.Point(68, 72);
+            biasGZ.Name = "biasGZ";
+            biasGZ.ReadOnly = true;
+            biasGZ.Size = new System.Drawing.Size(39, 21);
+            biasGZ.TabIndex = 115;
+            biasGZ.Text = "0";
+            biasGZ.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // gzminus
+            // 
+            gzminus.BackColor = Color.Azure;
+            gzminus.FlatAppearance.BorderColor = Color.MidnightBlue;
+            gzminus.FlatAppearance.BorderSize = 2;
+            gzminus.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            gzminus.FlatStyle = FlatStyle.Flat;
+            gzminus.Location = new System.Drawing.Point(136, 71);
+            gzminus.Margin = new Padding(2, 3, 2, 3);
+            gzminus.Name = "gzminus";
+            gzminus.Size = new System.Drawing.Size(20, 23);
+            gzminus.TabIndex = 114;
+            gzminus.Text = "-";
+            gzminus.UseVisualStyleBackColor = false;
+            gzminus.Click += gzminus_Click_1;
+            // 
+            // gzplus
+            // 
+            gzplus.BackColor = Color.Azure;
+            gzplus.FlatAppearance.BorderColor = Color.MidnightBlue;
+            gzplus.FlatAppearance.BorderSize = 2;
+            gzplus.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            gzplus.FlatStyle = FlatStyle.Flat;
+            gzplus.Location = new System.Drawing.Point(112, 71);
+            gzplus.Margin = new Padding(2, 3, 2, 3);
+            gzplus.Name = "gzplus";
+            gzplus.Size = new System.Drawing.Size(20, 23);
+            gzplus.TabIndex = 113;
+            gzplus.Text = "+";
+            gzplus.TextAlign = ContentAlignment.TopCenter;
+            gzplus.UseVisualStyleBackColor = false;
+            gzplus.Click += gzplus_Click_1;
+            // 
+            // udGZ
+            // 
+            udGZ.BackColor = Color.LightSkyBlue;
+            udGZ.Location = new System.Drawing.Point(160, 72);
+            udGZ.Name = "udGZ";
+            udGZ.ReadOnly = true;
+            udGZ.Size = new System.Drawing.Size(39, 21);
+            udGZ.TabIndex = 112;
+            udGZ.Text = "0";
+            udGZ.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // label4
+            // 
+            label4.AutoSize = true;
+            label4.BackColor = Color.Gold;
+            label4.Location = new System.Drawing.Point(17, 75);
+            label4.Name = "label4";
+            label4.Size = new System.Drawing.Size(42, 15);
+            label4.TabIndex = 111;
+            label4.Text = "Gyro Z";
+            // 
+            // biasGY
+            // 
+            biasGY.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            biasGY.Location = new System.Drawing.Point(68, 44);
+            biasGY.Name = "biasGY";
+            biasGY.ReadOnly = true;
+            biasGY.Size = new System.Drawing.Size(39, 21);
+            biasGY.TabIndex = 110;
+            biasGY.Text = "0";
+            biasGY.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // gyminus
+            // 
+            gyminus.BackColor = Color.Azure;
+            gyminus.FlatAppearance.BorderColor = Color.MidnightBlue;
+            gyminus.FlatAppearance.BorderSize = 2;
+            gyminus.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            gyminus.FlatStyle = FlatStyle.Flat;
+            gyminus.Location = new System.Drawing.Point(136, 43);
+            gyminus.Margin = new Padding(2, 3, 2, 3);
+            gyminus.Name = "gyminus";
+            gyminus.Size = new System.Drawing.Size(20, 23);
+            gyminus.TabIndex = 109;
+            gyminus.Text = "-";
+            gyminus.UseVisualStyleBackColor = false;
+            gyminus.Click += gyminus_Click_1;
+            // 
+            // gyplus
+            // 
+            gyplus.BackColor = Color.Azure;
+            gyplus.FlatAppearance.BorderColor = Color.MidnightBlue;
+            gyplus.FlatAppearance.BorderSize = 2;
+            gyplus.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            gyplus.FlatStyle = FlatStyle.Flat;
+            gyplus.Location = new System.Drawing.Point(112, 43);
+            gyplus.Margin = new Padding(2, 3, 2, 3);
+            gyplus.Name = "gyplus";
+            gyplus.Size = new System.Drawing.Size(20, 23);
+            gyplus.TabIndex = 108;
+            gyplus.Text = "+";
+            gyplus.TextAlign = ContentAlignment.TopCenter;
+            gyplus.UseVisualStyleBackColor = false;
+            gyplus.Click += gyplus_Click_1;
+            // 
+            // udGY
+            // 
+            udGY.BackColor = Color.MediumSpringGreen;
+            udGY.Location = new System.Drawing.Point(160, 44);
+            udGY.Name = "udGY";
+            udGY.ReadOnly = true;
+            udGY.Size = new System.Drawing.Size(39, 21);
+            udGY.TabIndex = 107;
+            udGY.Text = "0";
+            udGY.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // label3
+            // 
+            label3.AutoSize = true;
+            label3.BackColor = Color.Gold;
+            label3.Location = new System.Drawing.Point(17, 47);
+            label3.Name = "label3";
+            label3.Size = new System.Drawing.Size(42, 15);
+            label3.TabIndex = 106;
+            label3.Text = "Gyro Y";
+            // 
+            // biasGX
+            // 
+            biasGX.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            biasGX.Location = new System.Drawing.Point(68, 16);
+            biasGX.Name = "biasGX";
+            biasGX.ReadOnly = true;
+            biasGX.Size = new System.Drawing.Size(39, 21);
+            biasGX.TabIndex = 105;
+            biasGX.Text = "0";
+            biasGX.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // gxminus
+            // 
+            gxminus.BackColor = Color.Azure;
+            gxminus.FlatAppearance.BorderColor = Color.MidnightBlue;
+            gxminus.FlatAppearance.BorderSize = 2;
+            gxminus.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            gxminus.FlatStyle = FlatStyle.Flat;
+            gxminus.Location = new System.Drawing.Point(136, 15);
+            gxminus.Margin = new Padding(2, 3, 2, 3);
+            gxminus.Name = "gxminus";
+            gxminus.Size = new System.Drawing.Size(20, 23);
+            gxminus.TabIndex = 104;
+            gxminus.Text = "-";
+            gxminus.UseVisualStyleBackColor = false;
+            gxminus.Click += gxminus_Click_1;
+            // 
+            // udGX
+            // 
+            udGX.BackColor = Color.LemonChiffon;
+            udGX.Location = new System.Drawing.Point(160, 16);
+            udGX.Name = "udGX";
+            udGX.ReadOnly = true;
+            udGX.Size = new System.Drawing.Size(39, 21);
+            udGX.TabIndex = 102;
+            udGX.Text = "0";
+            udGX.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // gxplus
+            // 
+            gxplus.BackColor = Color.Azure;
+            gxplus.FlatAppearance.BorderColor = Color.MidnightBlue;
+            gxplus.FlatAppearance.BorderSize = 2;
+            gxplus.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            gxplus.FlatStyle = FlatStyle.Flat;
+            gxplus.Location = new System.Drawing.Point(112, 15);
+            gxplus.Margin = new Padding(2, 3, 2, 3);
+            gxplus.Name = "gxplus";
+            gxplus.Size = new System.Drawing.Size(20, 23);
+            gxplus.TabIndex = 103;
+            gxplus.Text = "+";
+            gxplus.TextAlign = ContentAlignment.TopCenter;
+            gxplus.UseVisualStyleBackColor = false;
+            gxplus.Click += gxplus_Click_1;
+            // 
+            // label2
+            // 
+            label2.AutoSize = true;
+            label2.BackColor = Color.Gold;
+            label2.Location = new System.Drawing.Point(17, 19);
+            label2.Name = "label2";
+            label2.Size = new System.Drawing.Size(42, 15);
+            label2.TabIndex = 101;
+            label2.Text = "Gyro X";
+            // 
+            // bCalcBias
+            // 
+            bCalcBias.BackColor = System.Drawing.SystemColors.ButtonFace;
+            bCalcBias.CausesValidation = false;
+            bCalcBias.FlatAppearance.BorderColor = Color.MidnightBlue;
+            bCalcBias.FlatAppearance.BorderSize = 2;
+            bCalcBias.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            bCalcBias.Location = new System.Drawing.Point(46, 180);
+            bCalcBias.Margin = new Padding(2, 3, 2, 3);
+            bCalcBias.Name = "bCalcBias";
+            bCalcBias.Size = new System.Drawing.Size(153, 23);
+            bCalcBias.TabIndex = 11;
+            bCalcBias.Text = "Calculate Bias Values";
+            bCalcBias.UseVisualStyleBackColor = true;
+            bCalcBias.Click += bCalcBias_Click;
+            // 
+            // gbHotKey
+            // 
+            gbHotKey.Controls.Add(btEnableAC);
+            gbHotKey.Controls.Add(tbAutoCentre);
+            gbHotKey.Controls.Add(btToggleAutoCentre);
+            gbHotKey.Controls.Add(cbHKey);
+            gbHotKey.Controls.Add(cbCOntrollerButtons);
+            gbHotKey.Controls.Add(cbControllerButton);
+            gbHotKey.Controls.Add(cbHotKey);
+            gbHotKey.Location = new System.Drawing.Point(3, 396);
+            gbHotKey.Name = "gbHotKey";
+            gbHotKey.Size = new System.Drawing.Size(292, 76);
+            gbHotKey.TabIndex = 143;
+            gbHotKey.TabStop = false;
+            gbHotKey.Text = "Recentre";
+            // 
+            // btEnableAC
+            // 
+            btEnableAC.Enabled = false;
+            btEnableAC.Location = new System.Drawing.Point(218, 44);
+            btEnableAC.Name = "btEnableAC";
+            btEnableAC.Size = new System.Drawing.Size(59, 23);
+            btEnableAC.TabIndex = 152;
+            btEnableAC.Text = "Enable";
+            btEnableAC.UseVisualStyleBackColor = true;
+            btEnableAC.Visible = false;
+            btEnableAC.Click += btEnableAC_Click;
+            // 
+            // tbAutoCentre
+            // 
+            tbAutoCentre.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbAutoCentre.BorderStyle = BorderStyle.None;
+            tbAutoCentre.Font = new Font("Arial", 11F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbAutoCentre.ForeColor = System.Drawing.SystemColors.ActiveCaptionText;
+            tbAutoCentre.Location = new System.Drawing.Point(135, 46);
+            tbAutoCentre.Multiline = true;
+            tbAutoCentre.Name = "tbAutoCentre";
+            tbAutoCentre.ReadOnly = true;
+            tbAutoCentre.Size = new System.Drawing.Size(74, 20);
+            tbAutoCentre.TabIndex = 157;
+            tbAutoCentre.TextAlign = System.Windows.Forms.HorizontalAlignment.Center;
+            // 
+            // btToggleAutoCentre
+            // 
+            btToggleAutoCentre.BackColor = System.Drawing.SystemColors.ButtonFace;
+            btToggleAutoCentre.FlatAppearance.BorderColor = Color.MidnightBlue;
+            btToggleAutoCentre.FlatAppearance.BorderSize = 2;
+            btToggleAutoCentre.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            btToggleAutoCentre.Location = new System.Drawing.Point(12, 44);
+            btToggleAutoCentre.Margin = new Padding(2, 3, 2, 3);
+            btToggleAutoCentre.Name = "btToggleAutoCentre";
+            btToggleAutoCentre.Size = new System.Drawing.Size(118, 23);
+            btToggleAutoCentre.TabIndex = 156;
+            btToggleAutoCentre.Text = "Toggle Auto-centre";
+            btToggleAutoCentre.UseVisualStyleBackColor = true;
+            btToggleAutoCentre.Click += btToggleAutoCentre_Click;
+            // 
+            // cbHKey
+            // 
+            cbHKey.FormattingEnabled = true;
+            cbHKey.Items.AddRange(new object[] { "Button 1", "Button 2", "Button 3", "Button 4" });
+            cbHKey.Location = new System.Drawing.Point(135, 19);
+            cbHKey.Name = "cbHKey";
+            cbHKey.Size = new System.Drawing.Size(74, 23);
+            cbHKey.TabIndex = 41;
+            cbHKey.SelectedIndexChanged += cbHKey_SelectedIndexChanged;
+            // 
+            // cbCOntrollerButtons
+            // 
+            cbCOntrollerButtons.FormattingEnabled = true;
+            cbCOntrollerButtons.Items.AddRange(new object[] { "Button 1", "Button 2", "Button 3", "Button 4" });
+            cbCOntrollerButtons.Location = new System.Drawing.Point(153, 44);
+            cbCOntrollerButtons.Name = "cbCOntrollerButtons";
+            cbCOntrollerButtons.Size = new System.Drawing.Size(121, 23);
+            cbCOntrollerButtons.TabIndex = 40;
+            cbCOntrollerButtons.Visible = false;
+            // 
+            // cbControllerButton
+            // 
+            cbControllerButton.AutoSize = true;
+            cbControllerButton.Location = new System.Drawing.Point(6, 46);
+            cbControllerButton.Name = "cbControllerButton";
+            cbControllerButton.RightToLeft = RightToLeft.Yes;
+            cbControllerButton.Size = new System.Drawing.Size(160, 19);
+            cbControllerButton.TabIndex = 35;
+            cbControllerButton.Text = "Enable Controller Button";
+            cbControllerButton.UseVisualStyleBackColor = true;
+            cbControllerButton.Visible = false;
+            // 
+            // cbHotKey
+            // 
+            cbHotKey.AutoSize = true;
+            cbHotKey.Location = new System.Drawing.Point(12, 21);
+            cbHotKey.Name = "cbHotKey";
+            cbHotKey.RightToLeft = RightToLeft.Yes;
+            cbHotKey.Size = new System.Drawing.Size(105, 19);
+            cbHotKey.TabIndex = 34;
+            cbHotKey.Text = "Enable Hotkey";
+            cbHotKey.TextAlign = ContentAlignment.MiddleRight;
+            cbHotKey.UseVisualStyleBackColor = true;
+            cbHotKey.CheckedChanged += cbHotKey_CheckedChanged;
+            // 
+            // gbTrackerConfig
+            // 
+            gbTrackerConfig.Controls.Add(bOrientate);
+            gbTrackerConfig.Controls.Add(tbOrientation);
+            gbTrackerConfig.Controls.Add(bSensorMode);
+            gbTrackerConfig.Controls.Add(tbSensorMode);
+            gbTrackerConfig.Location = new System.Drawing.Point(3, 139);
+            gbTrackerConfig.Name = "gbTrackerConfig";
+            gbTrackerConfig.Size = new System.Drawing.Size(292, 83);
+            gbTrackerConfig.TabIndex = 89;
+            gbTrackerConfig.TabStop = false;
+            gbTrackerConfig.Text = "Tracker Config";
+            // 
+            // bOrientate
+            // 
+            bOrientate.BackColor = System.Drawing.SystemColors.ButtonFace;
+            bOrientate.Enabled = false;
+            bOrientate.FlatAppearance.BorderColor = Color.MidnightBlue;
+            bOrientate.FlatAppearance.BorderSize = 2;
+            bOrientate.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            bOrientate.Location = new System.Drawing.Point(6, 19);
+            bOrientate.Margin = new Padding(2, 3, 2, 3);
+            bOrientate.Name = "bOrientate";
+            bOrientate.Size = new System.Drawing.Size(149, 23);
+            bOrientate.TabIndex = 53;
+            bOrientate.Text = "Rotate Mounting Axis";
+            bOrientate.UseVisualStyleBackColor = true;
+            bOrientate.Click += bOrientate_Click;
+            // 
+            // tbOrientation
+            // 
+            tbOrientation.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbOrientation.BorderStyle = BorderStyle.None;
+            tbOrientation.Font = new Font("Arial", 9.75F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbOrientation.ForeColor = System.Drawing.SystemColors.ActiveCaptionText;
+            tbOrientation.Location = new System.Drawing.Point(164, 21);
+            tbOrientation.Multiline = true;
+            tbOrientation.Name = "tbOrientation";
+            tbOrientation.ReadOnly = true;
+            tbOrientation.Size = new System.Drawing.Size(113, 20);
+            tbOrientation.TabIndex = 56;
+            tbOrientation.TextAlign = System.Windows.Forms.HorizontalAlignment.Center;
+            tbOrientation.TextChanged += tbOrientation_TextChanged;
+            // 
+            // bSensorMode
+            // 
+            bSensorMode.BackColor = System.Drawing.SystemColors.ButtonFace;
+            bSensorMode.Enabled = false;
+            bSensorMode.FlatAppearance.BorderColor = Color.MidnightBlue;
+            bSensorMode.FlatAppearance.BorderSize = 2;
+            bSensorMode.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            bSensorMode.Location = new System.Drawing.Point(6, 53);
+            bSensorMode.Margin = new Padding(2, 3, 2, 3);
+            bSensorMode.Name = "bSensorMode";
+            bSensorMode.Size = new System.Drawing.Size(149, 23);
+            bSensorMode.TabIndex = 55;
+            bSensorMode.Text = "Toggle Sensor Mode";
+            bSensorMode.UseVisualStyleBackColor = true;
+            bSensorMode.Click += bSensorMode_Click;
+            // 
+            // tbSensorMode
+            // 
+            tbSensorMode.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbSensorMode.BorderStyle = BorderStyle.None;
+            tbSensorMode.Font = new Font("Arial", 9.75F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbSensorMode.ForeColor = System.Drawing.SystemColors.ActiveCaptionText;
+            tbSensorMode.Location = new System.Drawing.Point(164, 55);
+            tbSensorMode.Multiline = true;
+            tbSensorMode.Name = "tbSensorMode";
+            tbSensorMode.ReadOnly = true;
+            tbSensorMode.Size = new System.Drawing.Size(113, 20);
+            tbSensorMode.TabIndex = 57;
+            tbSensorMode.TextAlign = System.Windows.Forms.HorizontalAlignment.Center;
+            // 
+            // tbSketch
+            // 
+            tbSketch.BackColor = System.Drawing.SystemColors.GradientActiveCaption;
+            tbSketch.CausesValidation = false;
+            tbSketch.Font = new Font("Arial", 16F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbSketch.Location = new System.Drawing.Point(309, 31);
+            tbSketch.Name = "tbSketch";
+            tbSketch.ReadOnly = true;
+            tbSketch.Size = new System.Drawing.Size(314, 32);
+            tbSketch.TabIndex = 140;
+            tbSketch.Text = "EDTracker Sketch";
+            tbSketch.TextAlign = System.Windows.Forms.HorizontalAlignment.Center;
+            // 
+            // gbDriftComp
+            // 
+            gbDriftComp.Controls.Add(lbTimer);
+            gbDriftComp.Controls.Add(tbTime);
+            gbDriftComp.Controls.Add(bSaveDriftComp);
+            gbDriftComp.Controls.Add(bResetView);
+            gbDriftComp.Controls.Add(tbDriftComp);
+            gbDriftComp.Controls.Add(lbComp);
+            gbDriftComp.Controls.Add(tbYawDrift);
+            gbDriftComp.Controls.Add(lbYawDrift);
+            gbDriftComp.Controls.Add(btCompDown);
+            gbDriftComp.Controls.Add(btCompUp);
+            gbDriftComp.Location = new System.Drawing.Point(3, 474);
+            gbDriftComp.Name = "gbDriftComp";
+            gbDriftComp.Size = new System.Drawing.Size(292, 134);
+            gbDriftComp.TabIndex = 141;
+            gbDriftComp.TabStop = false;
+            gbDriftComp.Text = "Drift Compensation";
+            // 
+            // lbTimer
+            // 
+            lbTimer.AutoSize = true;
+            lbTimer.Location = new System.Drawing.Point(143, 18);
+            lbTimer.Name = "lbTimer";
+            lbTimer.Size = new System.Drawing.Size(39, 15);
+            lbTimer.TabIndex = 154;
+            lbTimer.Text = "Timer";
+            lbTimer.TextAlign = ContentAlignment.MiddleRight;
+            // 
+            // tbTime
+            // 
+            tbTime.BackColor = Color.LemonChiffon;
+            tbTime.Font = new Font("Courier New", 8.25F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbTime.Location = new System.Drawing.Point(180, 15);
+            tbTime.Name = "tbTime";
+            tbTime.ReadOnly = true;
+            tbTime.Size = new System.Drawing.Size(44, 20);
+            tbTime.TabIndex = 153;
+            tbTime.Text = "00:00";
+            tbTime.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // bSaveDriftComp
+            // 
+            bSaveDriftComp.BackColor = System.Drawing.SystemColors.ButtonFace;
+            bSaveDriftComp.FlatAppearance.BorderColor = Color.MidnightBlue;
+            bSaveDriftComp.FlatAppearance.BorderSize = 2;
+            bSaveDriftComp.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            bSaveDriftComp.Location = new System.Drawing.Point(14, 99);
+            bSaveDriftComp.Margin = new Padding(2, 3, 2, 3);
+            bSaveDriftComp.Name = "bSaveDriftComp";
+            bSaveDriftComp.Size = new System.Drawing.Size(173, 23);
+            bSaveDriftComp.TabIndex = 145;
+            bSaveDriftComp.Text = "Save Drift Compensation";
+            bSaveDriftComp.UseVisualStyleBackColor = true;
+            bSaveDriftComp.Click += bSaveDriftComp_Click;
+            // 
+            // bResetView
+            // 
+            bResetView.BackColor = System.Drawing.SystemColors.ButtonFace;
+            bResetView.BackgroundImageLayout = ImageLayout.None;
+            bResetView.FlatAppearance.BorderColor = Color.MidnightBlue;
+            bResetView.FlatAppearance.BorderSize = 2;
+            bResetView.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            bResetView.Location = new System.Drawing.Point(14, 71);
+            bResetView.Margin = new Padding(2, 3, 2, 3);
+            bResetView.Name = "bResetView";
+            bResetView.Size = new System.Drawing.Size(173, 23);
+            bResetView.TabIndex = 144;
+            bResetView.Text = "Reset View / Drift Tracking";
+            bResetView.UseVisualStyleBackColor = true;
+            bResetView.Click += bResetView_Click;
+            // 
+            // tbDriftComp
+            // 
+            tbDriftComp.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbDriftComp.Location = new System.Drawing.Point(94, 39);
+            tbDriftComp.Name = "tbDriftComp";
+            tbDriftComp.ReadOnly = true;
+            tbDriftComp.Size = new System.Drawing.Size(39, 21);
+            tbDriftComp.TabIndex = 141;
+            tbDriftComp.Text = "0";
+            tbDriftComp.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // lbComp
+            // 
+            lbComp.AutoSize = true;
+            lbComp.Location = new System.Drawing.Point(6, 44);
+            lbComp.Name = "lbComp";
+            lbComp.Size = new System.Drawing.Size(89, 15);
+            lbComp.TabIndex = 140;
+            lbComp.Text = "Compensation";
+            lbComp.TextAlign = ContentAlignment.MiddleRight;
+            // 
+            // tbYawDrift
+            // 
+            tbYawDrift.BackColor = Color.LemonChiffon;
+            tbYawDrift.Location = new System.Drawing.Point(93, 15);
+            tbYawDrift.Name = "tbYawDrift";
+            tbYawDrift.ReadOnly = true;
+            tbYawDrift.Size = new System.Drawing.Size(39, 21);
+            tbYawDrift.TabIndex = 139;
+            tbYawDrift.Text = "0";
+            tbYawDrift.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // lbYawDrift
+            // 
+            lbYawDrift.AutoSize = true;
+            lbYawDrift.Location = new System.Drawing.Point(36, 18);
+            lbYawDrift.Name = "lbYawDrift";
+            lbYawDrift.Size = new System.Drawing.Size(54, 15);
+            lbYawDrift.TabIndex = 138;
+            lbYawDrift.Text = "Yaw Drift";
+            lbYawDrift.TextAlign = ContentAlignment.MiddleRight;
+            // 
+            // btCompDown
+            // 
+            btCompDown.BackColor = Color.Azure;
+            btCompDown.FlatAppearance.BorderColor = Color.MidnightBlue;
+            btCompDown.FlatAppearance.BorderSize = 2;
+            btCompDown.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            btCompDown.FlatStyle = FlatStyle.Flat;
+            btCompDown.Location = new System.Drawing.Point(168, 39);
+            btCompDown.Margin = new Padding(2, 3, 2, 3);
+            btCompDown.Name = "btCompDown";
+            btCompDown.Size = new System.Drawing.Size(20, 23);
+            btCompDown.TabIndex = 137;
+            btCompDown.Text = "-";
+            btCompDown.UseVisualStyleBackColor = false;
+            btCompDown.Click += btCompDown_Click;
+            // 
+            // btCompUp
+            // 
+            btCompUp.BackColor = Color.Azure;
+            btCompUp.FlatAppearance.BorderColor = Color.MidnightBlue;
+            btCompUp.FlatAppearance.BorderSize = 2;
+            btCompUp.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            btCompUp.FlatStyle = FlatStyle.Flat;
+            btCompUp.Location = new System.Drawing.Point(144, 39);
+            btCompUp.Margin = new Padding(2, 3, 2, 3);
+            btCompUp.Name = "btCompUp";
+            btCompUp.Size = new System.Drawing.Size(20, 23);
+            btCompUp.TabIndex = 136;
+            btCompUp.Text = "+";
+            btCompUp.UseVisualStyleBackColor = false;
+            btCompUp.Click += btCompUp_Click;
+            // 
+            // gbScaling
+            // 
+            gbScaling.Controls.Add(tbSmoothing);
+            gbScaling.Controls.Add(lbSmooth);
+            gbScaling.Controls.Add(sliderSmoothing);
+            gbScaling.Controls.Add(tbRespMode);
+            gbScaling.Controls.Add(bRespMode);
+            gbScaling.Controls.Add(tbPitchScaling);
+            gbScaling.Controls.Add(label11);
+            gbScaling.Controls.Add(tbYawScaling);
+            gbScaling.Controls.Add(label10);
+            gbScaling.Controls.Add(cbFineAdjust);
+            gbScaling.Controls.Add(btYawScaleDown);
+            gbScaling.Controls.Add(btPitchScaleDown);
+            gbScaling.Controls.Add(btPitchScaleUp);
+            gbScaling.Controls.Add(btYawScaleUp);
+            gbScaling.Location = new System.Drawing.Point(3, 227);
+            gbScaling.Name = "gbScaling";
+            gbScaling.Size = new System.Drawing.Size(292, 165);
+            gbScaling.TabIndex = 142;
+            gbScaling.TabStop = false;
+            gbScaling.Text = "Response Scaling";
+            // 
+            // tbSmoothing
+            // 
+            tbSmoothing.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbSmoothing.Location = new System.Drawing.Point(95, 78);
+            tbSmoothing.Name = "tbSmoothing";
+            tbSmoothing.ReadOnly = true;
+            tbSmoothing.Size = new System.Drawing.Size(39, 21);
+            tbSmoothing.TabIndex = 154;
+            tbSmoothing.Text = "0";
+            tbSmoothing.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // lbSmooth
+            // 
+            lbSmooth.AutoSize = true;
+            lbSmooth.Location = new System.Drawing.Point(9, 80);
+            lbSmooth.Name = "lbSmooth";
+            lbSmooth.Size = new System.Drawing.Size(67, 15);
+            lbSmooth.TabIndex = 153;
+            lbSmooth.Text = "Smoothing";
+            lbSmooth.TextAlign = ContentAlignment.MiddleRight;
+            // 
+            // sliderSmoothing
+            // 
+            sliderSmoothing.AutoSize = false;
+            sliderSmoothing.Location = new System.Drawing.Point(139, 78);
+            sliderSmoothing.Maximum = 99;
+            sliderSmoothing.Name = "sliderSmoothing";
+            sliderSmoothing.Size = new System.Drawing.Size(138, 27);
+            sliderSmoothing.TabIndex = 152;
+            sliderSmoothing.Scroll += trackBar1_Scroll;
+            sliderSmoothing.MouseUp += trackBar1_MUP;
+            // 
+            // tbRespMode
+            // 
+            tbRespMode.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbRespMode.BorderStyle = BorderStyle.None;
+            tbRespMode.Font = new Font("Arial", 9.75F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbRespMode.ForeColor = System.Drawing.SystemColors.ActiveCaptionText;
+            tbRespMode.Location = new System.Drawing.Point(164, 127);
+            tbRespMode.Multiline = true;
+            tbRespMode.Name = "tbRespMode";
+            tbRespMode.ReadOnly = true;
+            tbRespMode.Size = new System.Drawing.Size(113, 20);
+            tbRespMode.TabIndex = 150;
+            tbRespMode.TextAlign = System.Windows.Forms.HorizontalAlignment.Center;
+            // 
+            // bRespMode
+            // 
+            bRespMode.BackColor = System.Drawing.SystemColors.ButtonFace;
+            bRespMode.FlatAppearance.BorderColor = Color.MidnightBlue;
+            bRespMode.FlatAppearance.BorderSize = 2;
+            bRespMode.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            bRespMode.Location = new System.Drawing.Point(6, 125);
+            bRespMode.Margin = new Padding(2, 3, 2, 3);
+            bRespMode.Name = "bRespMode";
+            bRespMode.Size = new System.Drawing.Size(150, 23);
+            bRespMode.TabIndex = 149;
+            bRespMode.Text = "Toggle Response Mode";
+            bRespMode.UseVisualStyleBackColor = true;
+            bRespMode.Click += bRespMode_Click;
+            // 
+            // tbPitchScaling
+            // 
+            tbPitchScaling.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbPitchScaling.Location = new System.Drawing.Point(95, 52);
+            tbPitchScaling.Name = "tbPitchScaling";
+            tbPitchScaling.ReadOnly = true;
+            tbPitchScaling.Size = new System.Drawing.Size(39, 21);
+            tbPitchScaling.TabIndex = 148;
+            tbPitchScaling.Text = "0";
+            tbPitchScaling.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // label11
+            // 
+            label11.AutoSize = true;
+            label11.Location = new System.Drawing.Point(9, 55);
+            label11.Name = "label11";
+            label11.Size = new System.Drawing.Size(78, 15);
+            label11.TabIndex = 147;
+            label11.Text = "Pitch Scaling";
+            label11.TextAlign = ContentAlignment.MiddleRight;
+            // 
+            // tbYawScaling
+            // 
+            tbYawScaling.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbYawScaling.Location = new System.Drawing.Point(95, 24);
+            tbYawScaling.Name = "tbYawScaling";
+            tbYawScaling.ReadOnly = true;
+            tbYawScaling.Size = new System.Drawing.Size(39, 21);
+            tbYawScaling.TabIndex = 146;
+            tbYawScaling.Text = "0";
+            tbYawScaling.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // label10
+            // 
+            label10.AutoSize = true;
+            label10.Location = new System.Drawing.Point(9, 27);
+            label10.Name = "label10";
+            label10.Size = new System.Drawing.Size(73, 15);
+            label10.TabIndex = 145;
+            label10.Text = "Yaw Scaling";
+            label10.TextAlign = ContentAlignment.MiddleRight;
+            // 
+            // cbFineAdjust
+            // 
+            cbFineAdjust.AutoSize = true;
+            cbFineAdjust.Location = new System.Drawing.Point(188, 22);
+            cbFineAdjust.Name = "cbFineAdjust";
+            cbFineAdjust.Size = new System.Drawing.Size(86, 19);
+            cbFineAdjust.TabIndex = 144;
+            cbFineAdjust.Text = "Fine Adjust";
+            cbFineAdjust.UseVisualStyleBackColor = true;
+            // 
+            // btYawScaleDown
+            // 
+            btYawScaleDown.BackColor = Color.Azure;
+            btYawScaleDown.FlatAppearance.BorderColor = Color.MidnightBlue;
+            btYawScaleDown.FlatAppearance.BorderSize = 2;
+            btYawScaleDown.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            btYawScaleDown.FlatStyle = FlatStyle.Flat;
+            btYawScaleDown.Location = new System.Drawing.Point(163, 22);
+            btYawScaleDown.Margin = new Padding(2, 3, 2, 3);
+            btYawScaleDown.Name = "btYawScaleDown";
+            btYawScaleDown.Size = new System.Drawing.Size(20, 23);
+            btYawScaleDown.TabIndex = 143;
+            btYawScaleDown.Text = "-";
+            btYawScaleDown.UseVisualStyleBackColor = false;
+            btYawScaleDown.Click += btYawScaleDown_Click;
+            // 
+            // btPitchScaleDown
+            // 
+            btPitchScaleDown.BackColor = Color.Azure;
+            btPitchScaleDown.FlatAppearance.BorderColor = Color.MidnightBlue;
+            btPitchScaleDown.FlatAppearance.BorderSize = 2;
+            btPitchScaleDown.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            btPitchScaleDown.FlatStyle = FlatStyle.Flat;
+            btPitchScaleDown.Location = new System.Drawing.Point(163, 49);
+            btPitchScaleDown.Margin = new Padding(2, 3, 2, 3);
+            btPitchScaleDown.Name = "btPitchScaleDown";
+            btPitchScaleDown.Size = new System.Drawing.Size(20, 23);
+            btPitchScaleDown.TabIndex = 142;
+            btPitchScaleDown.Text = "-";
+            btPitchScaleDown.UseVisualStyleBackColor = false;
+            btPitchScaleDown.Click += btPitchScaleDown_Click;
+            // 
+            // btPitchScaleUp
+            // 
+            btPitchScaleUp.BackColor = Color.Azure;
+            btPitchScaleUp.FlatAppearance.BorderColor = Color.MidnightBlue;
+            btPitchScaleUp.FlatAppearance.BorderSize = 2;
+            btPitchScaleUp.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            btPitchScaleUp.FlatStyle = FlatStyle.Flat;
+            btPitchScaleUp.Location = new System.Drawing.Point(139, 49);
+            btPitchScaleUp.Margin = new Padding(2, 3, 2, 3);
+            btPitchScaleUp.Name = "btPitchScaleUp";
+            btPitchScaleUp.Size = new System.Drawing.Size(20, 23);
+            btPitchScaleUp.TabIndex = 141;
+            btPitchScaleUp.Text = "+";
+            btPitchScaleUp.UseVisualStyleBackColor = false;
+            btPitchScaleUp.Click += btPitchScaleUp_Click;
+            // 
+            // btYawScaleUp
+            // 
+            btYawScaleUp.BackColor = Color.Azure;
+            btYawScaleUp.FlatAppearance.BorderColor = Color.MidnightBlue;
+            btYawScaleUp.FlatAppearance.BorderSize = 2;
+            btYawScaleUp.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            btYawScaleUp.FlatStyle = FlatStyle.Flat;
+            btYawScaleUp.Location = new System.Drawing.Point(139, 22);
+            btYawScaleUp.Margin = new Padding(2, 3, 2, 3);
+            btYawScaleUp.Name = "btYawScaleUp";
+            btYawScaleUp.Size = new System.Drawing.Size(20, 23);
+            btYawScaleUp.TabIndex = 140;
+            btYawScaleUp.Text = "+";
+            btYawScaleUp.UseVisualStyleBackColor = false;
+            btYawScaleUp.Click += btYawScaleUp_Click;
+            // 
+            // tbTemps
+            // 
+            tbTemps.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbTemps.Location = new System.Drawing.Point(267, 17);
+            tbTemps.Name = "tbTemps";
+            tbTemps.ReadOnly = true;
+            tbTemps.Size = new System.Drawing.Size(39, 21);
+            tbTemps.TabIndex = 145;
+            tbTemps.Text = "0";
+            tbTemps.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // lbTemps
+            // 
+            lbTemps.AutoSize = true;
+            lbTemps.BackColor = Color.PaleGreen;
+            lbTemps.Location = new System.Drawing.Point(185, 20);
+            lbTemps.Name = "lbTemps";
+            lbTemps.Size = new System.Drawing.Size(77, 15);
+            lbTemps.TabIndex = 144;
+            lbTemps.Text = "Temperature";
+            lbTemps.TextAlign = ContentAlignment.MiddleRight;
+            // 
+            // tbMonitor
+            // 
+            tbMonitor.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbMonitor.BorderStyle = BorderStyle.None;
+            tbMonitor.CausesValidation = false;
+            tbMonitor.Font = new Font("Arial", 11F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbMonitor.ForeColor = System.Drawing.SystemColors.ActiveCaptionText;
+            tbMonitor.Location = new System.Drawing.Point(18, 17);
+            tbMonitor.Name = "tbMonitor";
+            tbMonitor.ReadOnly = true;
+            tbMonitor.Size = new System.Drawing.Size(136, 17);
+            tbMonitor.TabIndex = 61;
+            tbMonitor.Text = "OFF";
+            tbMonitor.TextAlign = System.Windows.Forms.HorizontalAlignment.Center;
+            // 
+            // notifyIcon1
+            // 
+            notifyIcon1.BalloonTipText = "EDTracker is minimised";
+            notifyIcon1.BalloonTipTitle = "EDTracker UI";
+            notifyIcon1.Text = "EDTracker";
+            notifyIcon1.Visible = true;
+            notifyIcon1.MouseDoubleClick += notifyIcon1_MouseDoubleClick;
+            // 
+            // lbAxis4
+            // 
+            lbAxis4.BackColor = Color.Black;
+            lbAxis4.ForeColor = Color.LightSkyBlue;
+            lbAxis4.Location = new System.Drawing.Point(15, 484);
+            lbAxis4.Name = "lbAxis4";
+            lbAxis4.Size = new System.Drawing.Size(107, 14);
+            lbAxis4.TabIndex = 149;
+            lbAxis4.Text = "Axis 4";
+            // 
+            // lbAxis3
+            // 
+            lbAxis3.BackColor = Color.Black;
+            lbAxis3.ForeColor = Color.LawnGreen;
+            lbAxis3.Location = new System.Drawing.Point(15, 443);
+            lbAxis3.Name = "lbAxis3";
+            lbAxis3.Size = new System.Drawing.Size(107, 14);
+            lbAxis3.TabIndex = 150;
+            lbAxis3.Text = "Axis 3";
+            // 
+            // lbAxis2
+            // 
+            lbAxis2.BackColor = Color.Black;
+            lbAxis2.ForeColor = Color.Yellow;
+            lbAxis2.Location = new System.Drawing.Point(15, 404);
+            lbAxis2.Name = "lbAxis2";
+            lbAxis2.Size = new System.Drawing.Size(107, 14);
+            lbAxis2.TabIndex = 148;
+            lbAxis2.Text = "Axis 2";
+            // 
+            // lbAxis1
+            // 
+            lbAxis1.BackColor = Color.Black;
+            lbAxis1.CausesValidation = false;
+            lbAxis1.ForeColor = Color.Red;
+            lbAxis1.Location = new System.Drawing.Point(15, 363);
+            lbAxis1.Name = "lbAxis1";
+            lbAxis1.Size = new System.Drawing.Size(107, 14);
+            lbAxis1.TabIndex = 147;
+            lbAxis1.Text = "Axis 1";
+            // 
+            // menuStrip1
+            // 
+            menuStrip1.Items.AddRange(new ToolStripItem[] { toolStripMenuItem1, Help, debugToolStripMenuItem });
+            menuStrip1.LayoutStyle = ToolStripLayoutStyle.HorizontalStackWithOverflow;
+            menuStrip1.Location = new System.Drawing.Point(0, 0);
+            menuStrip1.Name = "menuStrip1";
+            menuStrip1.Size = new System.Drawing.Size(654, 24);
+            menuStrip1.Stretch = false;
+            menuStrip1.TabIndex = 151;
+            menuStrip1.Text = "menuStrip1";
+            // 
+            // toolStripMenuItem1
+            // 
+            toolStripMenuItem1.Alignment = ToolStripItemAlignment.Right;
+            toolStripMenuItem1.DropDownItems.AddRange(new ToolStripItem[] { aboutToolStripMenuItem, modeToolStripMenuItem });
+            toolStripMenuItem1.Name = "toolStripMenuItem1";
+            toolStripMenuItem1.Size = new System.Drawing.Size(52, 20);
+            toolStripMenuItem1.Text = "About";
+            // 
+            // aboutToolStripMenuItem
+            // 
+            aboutToolStripMenuItem.Name = "aboutToolStripMenuItem";
+            aboutToolStripMenuItem.Size = new System.Drawing.Size(107, 22);
+            aboutToolStripMenuItem.Text = "About";
+            aboutToolStripMenuItem.Click += aboutToolStripMenuItem_Click;
+            // 
+            // modeToolStripMenuItem
+            // 
+            modeToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { uSERToolStripMenuItem, tESTToolStripMenuItem, dEVToolStripMenuItem });
+            modeToolStripMenuItem.Name = "modeToolStripMenuItem";
+            modeToolStripMenuItem.Size = new System.Drawing.Size(107, 22);
+            modeToolStripMenuItem.Text = "Mode";
+            // 
+            // uSERToolStripMenuItem
+            // 
+            uSERToolStripMenuItem.Name = "uSERToolStripMenuItem";
+            uSERToolStripMenuItem.Size = new System.Drawing.Size(101, 22);
+            uSERToolStripMenuItem.Text = "USER";
+            uSERToolStripMenuItem.Click += uSERToolStripMenuItem_Click;
+            // 
+            // tESTToolStripMenuItem
+            // 
+            tESTToolStripMenuItem.Name = "tESTToolStripMenuItem";
+            tESTToolStripMenuItem.Size = new System.Drawing.Size(101, 22);
+            tESTToolStripMenuItem.Text = "TEST";
+            tESTToolStripMenuItem.Click += tESTToolStripMenuItem_Click;
+            // 
+            // dEVToolStripMenuItem
+            // 
+            dEVToolStripMenuItem.Name = "dEVToolStripMenuItem";
+            dEVToolStripMenuItem.Size = new System.Drawing.Size(101, 22);
+            dEVToolStripMenuItem.Text = "DEV";
+            dEVToolStripMenuItem.Click += dEVToolStripMenuItem_Click;
+            // 
+            // Help
+            // 
+            Help.Alignment = ToolStripItemAlignment.Right;
+            Help.Name = "Help";
+            Help.Size = new System.Drawing.Size(44, 20);
+            Help.Text = "Help";
+            Help.Click += Help_Click;
+            // 
+            // debugToolStripMenuItem
+            // 
+            debugToolStripMenuItem.Alignment = ToolStripItemAlignment.Right;
+            debugToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { showToolStripMenuItem, hideToolStripMenuItem });
+            debugToolStripMenuItem.Name = "debugToolStripMenuItem";
+            debugToolStripMenuItem.Size = new System.Drawing.Size(39, 20);
+            debugToolStripMenuItem.Text = "Log";
+            // 
+            // showToolStripMenuItem
+            // 
+            showToolStripMenuItem.Name = "showToolStripMenuItem";
+            showToolStripMenuItem.Size = new System.Drawing.Size(103, 22);
+            showToolStripMenuItem.Text = "Show";
+            showToolStripMenuItem.Click += showToolStripMenuItem_Click;
+            // 
+            // hideToolStripMenuItem
+            // 
+            hideToolStripMenuItem.Name = "hideToolStripMenuItem";
+            hideToolStripMenuItem.Size = new System.Drawing.Size(103, 22);
+            hideToolStripMenuItem.Text = "Hide";
+            hideToolStripMenuItem.Click += hideToolStripMenuItem_Click;
+            // 
+            // timer1
+            // 
+            timer1.Enabled = true;
+            timer1.Interval = 1000;
+            timer1.Tick += timer1_Tick;
+            // 
+            // gbMagCalib
+            // 
+            gbMagCalib.Controls.Add(label1);
+            gbMagCalib.Controls.Add(tbOffZ);
+            gbMagCalib.Controls.Add(tbOffY);
+            gbMagCalib.Controls.Add(tbOffX);
+            gbMagCalib.Controls.Add(label18);
+            gbMagCalib.Controls.Add(tbarMagSens);
+            gbMagCalib.Controls.Add(button1);
+            gbMagCalib.Controls.Add(label16);
+            gbMagCalib.Controls.Add(tbMagSamples);
+            gbMagCalib.Controls.Add(tbMinX);
+            gbMagCalib.Controls.Add(label9);
+            gbMagCalib.Controls.Add(label12);
+            gbMagCalib.Controls.Add(label13);
+            gbMagCalib.Controls.Add(label14);
+            gbMagCalib.Controls.Add(label15);
+            gbMagCalib.Controls.Add(tbMaxZ);
+            gbMagCalib.Controls.Add(tbMinZ);
+            gbMagCalib.Controls.Add(tbMaxY);
+            gbMagCalib.Controls.Add(tbMinY);
+            gbMagCalib.Controls.Add(tbMaxX);
+            gbMagCalib.Location = new System.Drawing.Point(6, 315);
+            gbMagCalib.Name = "gbMagCalib";
+            gbMagCalib.Size = new System.Drawing.Size(174, 205);
+            gbMagCalib.TabIndex = 152;
+            gbMagCalib.TabStop = false;
+            gbMagCalib.Text = "Calibration";
+            // 
+            // label1
+            // 
+            label1.AutoSize = true;
+            label1.Location = new System.Drawing.Point(121, 17);
+            label1.Name = "label1";
+            label1.Size = new System.Drawing.Size(39, 15);
+            label1.TabIndex = 171;
+            label1.Text = "Offset";
+            label1.TextAlign = ContentAlignment.MiddleRight;
+            // 
+            // tbOffZ
+            // 
+            tbOffZ.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbOffZ.BorderStyle = BorderStyle.None;
+            tbOffZ.Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbOffZ.ForeColor = Color.Black;
+            tbOffZ.Location = new System.Drawing.Point(122, 87);
+            tbOffZ.Multiline = true;
+            tbOffZ.Name = "tbOffZ";
+            tbOffZ.ReadOnly = true;
+            tbOffZ.Size = new System.Drawing.Size(44, 20);
+            tbOffZ.TabIndex = 170;
+            tbOffZ.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // tbOffY
+            // 
+            tbOffY.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbOffY.BorderStyle = BorderStyle.None;
+            tbOffY.Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbOffY.ForeColor = Color.Black;
+            tbOffY.Location = new System.Drawing.Point(122, 61);
+            tbOffY.Multiline = true;
+            tbOffY.Name = "tbOffY";
+            tbOffY.ReadOnly = true;
+            tbOffY.Size = new System.Drawing.Size(44, 20);
+            tbOffY.TabIndex = 169;
+            tbOffY.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // tbOffX
+            // 
+            tbOffX.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbOffX.BorderStyle = BorderStyle.None;
+            tbOffX.Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbOffX.ForeColor = Color.Black;
+            tbOffX.Location = new System.Drawing.Point(122, 35);
+            tbOffX.Multiline = true;
+            tbOffX.Name = "tbOffX";
+            tbOffX.ReadOnly = true;
+            tbOffX.Size = new System.Drawing.Size(44, 20);
+            tbOffX.TabIndex = 168;
+            tbOffX.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // label18
+            // 
+            label18.AutoSize = true;
+            label18.Location = new System.Drawing.Point(4, 152);
+            label18.Name = "label18";
+            label18.Size = new System.Drawing.Size(61, 15);
+            label18.TabIndex = 167;
+            label18.Text = "Sensitivity";
+            label18.TextAlign = ContentAlignment.MiddleRight;
+            // 
+            // tbarMagSens
+            // 
+            tbarMagSens.AutoSize = false;
+            tbarMagSens.Location = new System.Drawing.Point(6, 173);
+            tbarMagSens.Maximum = 20;
+            tbarMagSens.Name = "tbarMagSens";
+            tbarMagSens.Size = new System.Drawing.Size(162, 23);
+            tbarMagSens.TabIndex = 166;
+            tbarMagSens.TickStyle = TickStyle.None;
+            tbarMagSens.Value = 15;
+            tbarMagSens.Scroll += trackBar1_Scroll_1;
+            // 
+            // button1
+            // 
+            button1.Location = new System.Drawing.Point(98, 114);
+            button1.Name = "button1";
+            button1.Size = new System.Drawing.Size(71, 23);
+            button1.TabIndex = 165;
+            button1.Text = "Restart";
+            button1.UseVisualStyleBackColor = true;
+            button1.Click += button1_Click;
+            // 
+            // label16
+            // 
+            label16.AutoSize = true;
+            label16.Location = new System.Drawing.Point(4, 116);
+            label16.Name = "label16";
+            label16.Size = new System.Drawing.Size(42, 15);
+            label16.TabIndex = 164;
+            label16.Text = "Points";
+            label16.TextAlign = ContentAlignment.MiddleRight;
+            label16.Click += label16_Click;
+            // 
+            // tbMagSamples
+            // 
+            tbMagSamples.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbMagSamples.BorderStyle = BorderStyle.None;
+            tbMagSamples.Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbMagSamples.ForeColor = Color.Black;
+            tbMagSamples.Location = new System.Drawing.Point(47, 114);
+            tbMagSamples.Multiline = true;
+            tbMagSamples.Name = "tbMagSamples";
+            tbMagSamples.ReadOnly = true;
+            tbMagSamples.Size = new System.Drawing.Size(45, 20);
+            tbMagSamples.TabIndex = 163;
+            tbMagSamples.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // tbMinX
+            // 
+            tbMinX.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbMinX.BorderStyle = BorderStyle.None;
+            tbMinX.Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbMinX.ForeColor = Color.Black;
+            tbMinX.Location = new System.Drawing.Point(21, 35);
+            tbMinX.Multiline = true;
+            tbMinX.Name = "tbMinX";
+            tbMinX.ReadOnly = true;
+            tbMinX.Size = new System.Drawing.Size(46, 20);
+            tbMinX.TabIndex = 152;
+            tbMinX.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // label9
+            // 
+            label9.AutoSize = true;
+            label9.Location = new System.Drawing.Point(73, 16);
+            label9.Name = "label9";
+            label9.Size = new System.Drawing.Size(28, 15);
+            label9.TabIndex = 162;
+            label9.Text = "Max";
+            label9.TextAlign = ContentAlignment.MiddleRight;
+            // 
+            // label12
+            // 
+            label12.AutoSize = true;
+            label12.Location = new System.Drawing.Point(26, 16);
+            label12.Name = "label12";
+            label12.Size = new System.Drawing.Size(26, 15);
+            label12.TabIndex = 161;
+            label12.Text = "Min";
+            label12.TextAlign = ContentAlignment.MiddleRight;
+            label12.Click += label12_Click;
+            // 
+            // label13
+            // 
+            label13.AutoSize = true;
+            label13.Location = new System.Drawing.Point(4, 89);
+            label13.Name = "label13";
+            label13.Size = new System.Drawing.Size(14, 15);
+            label13.TabIndex = 160;
+            label13.Text = "Z";
+            label13.TextAlign = ContentAlignment.MiddleRight;
+            // 
+            // label14
+            // 
+            label14.AutoSize = true;
+            label14.Location = new System.Drawing.Point(4, 63);
+            label14.Name = "label14";
+            label14.Size = new System.Drawing.Size(14, 15);
+            label14.TabIndex = 159;
+            label14.Text = "Y";
+            label14.TextAlign = ContentAlignment.MiddleRight;
+            // 
+            // label15
+            // 
+            label15.AutoSize = true;
+            label15.Location = new System.Drawing.Point(4, 37);
+            label15.Name = "label15";
+            label15.Size = new System.Drawing.Size(14, 15);
+            label15.TabIndex = 158;
+            label15.Text = "X";
+            label15.TextAlign = ContentAlignment.MiddleRight;
+            // 
+            // tbMaxZ
+            // 
+            tbMaxZ.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbMaxZ.BorderStyle = BorderStyle.None;
+            tbMaxZ.Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbMaxZ.ForeColor = Color.Black;
+            tbMaxZ.Location = new System.Drawing.Point(73, 87);
+            tbMaxZ.Multiline = true;
+            tbMaxZ.Name = "tbMaxZ";
+            tbMaxZ.ReadOnly = true;
+            tbMaxZ.Size = new System.Drawing.Size(44, 20);
+            tbMaxZ.TabIndex = 157;
+            tbMaxZ.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // tbMinZ
+            // 
+            tbMinZ.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbMinZ.BorderStyle = BorderStyle.None;
+            tbMinZ.Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbMinZ.ForeColor = Color.Black;
+            tbMinZ.Location = new System.Drawing.Point(21, 87);
+            tbMinZ.Multiline = true;
+            tbMinZ.Name = "tbMinZ";
+            tbMinZ.ReadOnly = true;
+            tbMinZ.Size = new System.Drawing.Size(46, 20);
+            tbMinZ.TabIndex = 156;
+            tbMinZ.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // tbMaxY
+            // 
+            tbMaxY.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbMaxY.BorderStyle = BorderStyle.None;
+            tbMaxY.Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbMaxY.ForeColor = Color.Black;
+            tbMaxY.Location = new System.Drawing.Point(73, 61);
+            tbMaxY.Multiline = true;
+            tbMaxY.Name = "tbMaxY";
+            tbMaxY.ReadOnly = true;
+            tbMaxY.Size = new System.Drawing.Size(44, 20);
+            tbMaxY.TabIndex = 155;
+            tbMaxY.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // tbMinY
+            // 
+            tbMinY.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbMinY.BorderStyle = BorderStyle.None;
+            tbMinY.Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbMinY.ForeColor = Color.Black;
+            tbMinY.Location = new System.Drawing.Point(21, 61);
+            tbMinY.Multiline = true;
+            tbMinY.Name = "tbMinY";
+            tbMinY.ReadOnly = true;
+            tbMinY.Size = new System.Drawing.Size(46, 20);
+            tbMinY.TabIndex = 154;
+            tbMinY.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // tbMaxX
+            // 
+            tbMaxX.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbMaxX.BorderStyle = BorderStyle.None;
+            tbMaxX.Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbMaxX.ForeColor = Color.Black;
+            tbMaxX.Location = new System.Drawing.Point(73, 35);
+            tbMaxX.Multiline = true;
+            tbMaxX.Name = "tbMaxX";
+            tbMaxX.ReadOnly = true;
+            tbMaxX.Size = new System.Drawing.Size(44, 20);
+            tbMaxX.TabIndex = 153;
+            tbMaxX.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // btSave
+            // 
+            btSave.DialogResult = DialogResult.Cancel;
+            btSave.Location = new System.Drawing.Point(11, 176);
+            btSave.Name = "btSave";
+            btSave.Size = new System.Drawing.Size(110, 23);
+            btSave.TabIndex = 151;
+            btSave.Text = "Save Calibration";
+            btSave.UseVisualStyleBackColor = true;
+            btSave.Click += btSave_Click;
+            // 
+            // tabControl1
+            // 
+            tabControl1.Controls.Add(tabPage1);
+            tabControl1.Controls.Add(tabPage2);
+            tabControl1.Location = new System.Drawing.Point(309, 102);
+            tabControl1.Name = "tabControl1";
+            tabControl1.SelectedIndex = 0;
+            tabControl1.Size = new System.Drawing.Size(335, 553);
+            tabControl1.TabIndex = 154;
+            // 
+            // tabPage1
+            // 
+            tabPage1.Controls.Add(tbTemps);
+            tabPage1.Controls.Add(lbAxis1);
+            tabPage1.Controls.Add(lbAxis3);
+            tabPage1.Controls.Add(tbMonitor);
+            tabPage1.Controls.Add(lbAxis4);
+            tabPage1.Controls.Add(lbTemps);
+            tabPage1.Controls.Add(lbAxis2);
+            tabPage1.Controls.Add(elementHost1);
+            tabPage1.Location = new System.Drawing.Point(4, 24);
+            tabPage1.Name = "tabPage1";
+            tabPage1.Padding = new Padding(3);
+            tabPage1.Size = new System.Drawing.Size(327, 525);
+            tabPage1.TabIndex = 0;
+            tabPage1.Text = "Head";
+            tabPage1.UseVisualStyleBackColor = true;
+            // 
+            // elementHost1
+            // 
+            elementHost1.BackColor = System.Drawing.SystemColors.GradientActiveCaption;
+            elementHost1.CausesValidation = false;
+            elementHost1.Enabled = false;
+            elementHost1.ForeColor = Color.FloralWhite;
+            elementHost1.Location = new System.Drawing.Point(6, 10);
+            elementHost1.Name = "elementHost1";
+            elementHost1.Size = new System.Drawing.Size(314, 343);
+            elementHost1.TabIndex = 30;
+            elementHost1.Text = "elementHost1";
+            // 
+            // tabPage2
+            // 
+            tabPage2.Controls.Add(groupBox2);
+            tabPage2.Controls.Add(gbMagCalib);
+            tabPage2.Controls.Add(elementHost2);
+            tabPage2.Location = new System.Drawing.Point(4, 24);
+            tabPage2.Name = "tabPage2";
+            tabPage2.Padding = new Padding(3);
+            tabPage2.Size = new System.Drawing.Size(327, 525);
+            tabPage2.TabIndex = 1;
+            tabPage2.Text = "Magnetometer";
+            tabPage2.UseVisualStyleBackColor = true;
+            // 
+            // groupBox2
+            // 
+            groupBox2.CausesValidation = false;
+            groupBox2.Controls.Add(tbMagMat9);
+            groupBox2.Controls.Add(tbMagMat8);
+            groupBox2.Controls.Add(tbMagMat7);
+            groupBox2.Controls.Add(tbMagMat6);
+            groupBox2.Controls.Add(tbMagMat5);
+            groupBox2.Controls.Add(tbMagMat4);
+            groupBox2.Controls.Add(tbMagMat1);
+            groupBox2.Controls.Add(tbMagMat2);
+            groupBox2.Controls.Add(tbMagMat3);
+            groupBox2.Controls.Add(btSave);
+            groupBox2.Location = new System.Drawing.Point(186, 315);
+            groupBox2.Name = "groupBox2";
+            groupBox2.Size = new System.Drawing.Size(134, 205);
+            groupBox2.TabIndex = 154;
+            groupBox2.TabStop = false;
+            groupBox2.Text = "Matrix";
+            // 
+            // tbMagMat9
+            // 
+            tbMagMat9.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbMagMat9.BorderStyle = BorderStyle.None;
+            tbMagMat9.CausesValidation = false;
+            tbMagMat9.Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbMagMat9.ForeColor = Color.Black;
+            tbMagMat9.Location = new System.Drawing.Point(92, 80);
+            tbMagMat9.Multiline = true;
+            tbMagMat9.Name = "tbMagMat9";
+            tbMagMat9.ReadOnly = true;
+            tbMagMat9.Size = new System.Drawing.Size(39, 20);
+            tbMagMat9.TabIndex = 162;
+            tbMagMat9.TabStop = false;
+            tbMagMat9.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // tbMagMat8
+            // 
+            tbMagMat8.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbMagMat8.BorderStyle = BorderStyle.None;
+            tbMagMat8.CausesValidation = false;
+            tbMagMat8.Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbMagMat8.ForeColor = Color.Black;
+            tbMagMat8.Location = new System.Drawing.Point(49, 80);
+            tbMagMat8.Multiline = true;
+            tbMagMat8.Name = "tbMagMat8";
+            tbMagMat8.ReadOnly = true;
+            tbMagMat8.Size = new System.Drawing.Size(39, 20);
+            tbMagMat8.TabIndex = 161;
+            tbMagMat8.TabStop = false;
+            tbMagMat8.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // tbMagMat7
+            // 
+            tbMagMat7.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbMagMat7.BorderStyle = BorderStyle.None;
+            tbMagMat7.CausesValidation = false;
+            tbMagMat7.Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbMagMat7.ForeColor = Color.Black;
+            tbMagMat7.Location = new System.Drawing.Point(6, 80);
+            tbMagMat7.Multiline = true;
+            tbMagMat7.Name = "tbMagMat7";
+            tbMagMat7.ReadOnly = true;
+            tbMagMat7.Size = new System.Drawing.Size(39, 20);
+            tbMagMat7.TabIndex = 160;
+            tbMagMat7.TabStop = false;
+            tbMagMat7.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // tbMagMat6
+            // 
+            tbMagMat6.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbMagMat6.BorderStyle = BorderStyle.None;
+            tbMagMat6.CausesValidation = false;
+            tbMagMat6.Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbMagMat6.ForeColor = Color.Black;
+            tbMagMat6.Location = new System.Drawing.Point(92, 54);
+            tbMagMat6.Multiline = true;
+            tbMagMat6.Name = "tbMagMat6";
+            tbMagMat6.ReadOnly = true;
+            tbMagMat6.Size = new System.Drawing.Size(39, 20);
+            tbMagMat6.TabIndex = 159;
+            tbMagMat6.TabStop = false;
+            tbMagMat6.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // tbMagMat5
+            // 
+            tbMagMat5.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbMagMat5.BorderStyle = BorderStyle.None;
+            tbMagMat5.CausesValidation = false;
+            tbMagMat5.Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbMagMat5.ForeColor = Color.Black;
+            tbMagMat5.Location = new System.Drawing.Point(49, 54);
+            tbMagMat5.Multiline = true;
+            tbMagMat5.Name = "tbMagMat5";
+            tbMagMat5.ReadOnly = true;
+            tbMagMat5.Size = new System.Drawing.Size(39, 20);
+            tbMagMat5.TabIndex = 158;
+            tbMagMat5.TabStop = false;
+            tbMagMat5.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // tbMagMat4
+            // 
+            tbMagMat4.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbMagMat4.BorderStyle = BorderStyle.None;
+            tbMagMat4.CausesValidation = false;
+            tbMagMat4.Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbMagMat4.ForeColor = Color.Black;
+            tbMagMat4.Location = new System.Drawing.Point(6, 54);
+            tbMagMat4.Multiline = true;
+            tbMagMat4.Name = "tbMagMat4";
+            tbMagMat4.ReadOnly = true;
+            tbMagMat4.Size = new System.Drawing.Size(39, 20);
+            tbMagMat4.TabIndex = 157;
+            tbMagMat4.TabStop = false;
+            tbMagMat4.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // tbMagMat1
+            // 
+            tbMagMat1.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbMagMat1.BorderStyle = BorderStyle.None;
+            tbMagMat1.CausesValidation = false;
+            tbMagMat1.Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbMagMat1.ForeColor = Color.Black;
+            tbMagMat1.Location = new System.Drawing.Point(6, 28);
+            tbMagMat1.Multiline = true;
+            tbMagMat1.Name = "tbMagMat1";
+            tbMagMat1.ReadOnly = true;
+            tbMagMat1.Size = new System.Drawing.Size(39, 20);
+            tbMagMat1.TabIndex = 0;
+            tbMagMat1.TabStop = false;
+            tbMagMat1.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // tbMagMat2
+            // 
+            tbMagMat2.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbMagMat2.BorderStyle = BorderStyle.None;
+            tbMagMat2.CausesValidation = false;
+            tbMagMat2.Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbMagMat2.ForeColor = Color.Black;
+            tbMagMat2.Location = new System.Drawing.Point(49, 28);
+            tbMagMat2.Multiline = true;
+            tbMagMat2.Name = "tbMagMat2";
+            tbMagMat2.ReadOnly = true;
+            tbMagMat2.Size = new System.Drawing.Size(39, 20);
+            tbMagMat2.TabIndex = 155;
+            tbMagMat2.TabStop = false;
+            tbMagMat2.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // tbMagMat3
+            // 
+            tbMagMat3.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbMagMat3.BorderStyle = BorderStyle.None;
+            tbMagMat3.CausesValidation = false;
+            tbMagMat3.Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            tbMagMat3.ForeColor = Color.Black;
+            tbMagMat3.Location = new System.Drawing.Point(92, 28);
+            tbMagMat3.Multiline = true;
+            tbMagMat3.Name = "tbMagMat3";
+            tbMagMat3.ReadOnly = true;
+            tbMagMat3.Size = new System.Drawing.Size(39, 20);
+            tbMagMat3.TabIndex = 159;
+            tbMagMat3.TabStop = false;
+            tbMagMat3.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // elementHost2
+            // 
+            elementHost2.BackColor = Color.White;
+            elementHost2.CausesValidation = false;
+            elementHost2.ImeMode = ImeMode.NoControl;
+            elementHost2.Location = new System.Drawing.Point(6, 6);
+            elementHost2.Name = "elementHost2";
+            elementHost2.Size = new System.Drawing.Size(315, 300);
+            elementHost2.TabIndex = 153;
+            elementHost2.Text = "elementHost2";
+            // 
+            // gbMagGyro
+            // 
+            gbMagGyro.Controls.Add(btMagResetView);
+            gbMagGyro.Controls.Add(btMagAutoBias);
+            gbMagGyro.Controls.Add(tbGyroX);
+            gbMagGyro.Controls.Add(lbGX);
+            gbMagGyro.Controls.Add(tbGyroZ);
+            gbMagGyro.Controls.Add(tbGyroY);
+            gbMagGyro.Location = new System.Drawing.Point(181, 269);
+            gbMagGyro.Name = "gbMagGyro";
+            gbMagGyro.Size = new System.Drawing.Size(293, 124);
+            gbMagGyro.TabIndex = 157;
+            gbMagGyro.TabStop = false;
+            gbMagGyro.Text = "Auto Gyro Bias";
+            // 
+            // btMagResetView
+            // 
+            btMagResetView.BackColor = System.Drawing.SystemColors.ButtonFace;
+            btMagResetView.BackgroundImageLayout = ImageLayout.None;
+            btMagResetView.FlatAppearance.BorderColor = Color.MidnightBlue;
+            btMagResetView.FlatAppearance.BorderSize = 2;
+            btMagResetView.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            btMagResetView.Location = new System.Drawing.Point(7, 24);
+            btMagResetView.Margin = new Padding(2, 3, 2, 3);
+            btMagResetView.Name = "btMagResetView";
+            btMagResetView.Size = new System.Drawing.Size(173, 23);
+            btMagResetView.TabIndex = 168;
+            btMagResetView.Text = "Reset View";
+            btMagResetView.TextImageRelation = TextImageRelation.TextBeforeImage;
+            btMagResetView.UseVisualStyleBackColor = true;
+            btMagResetView.Click += btMagResetView_Click;
+            // 
+            // btMagAutoBias
+            // 
+            btMagAutoBias.BackColor = System.Drawing.SystemColors.ButtonFace;
+            btMagAutoBias.FlatAppearance.BorderColor = Color.MidnightBlue;
+            btMagAutoBias.FlatAppearance.BorderSize = 2;
+            btMagAutoBias.FlatAppearance.MouseOverBackColor = Color.CornflowerBlue;
+            btMagAutoBias.Location = new System.Drawing.Point(7, 53);
+            btMagAutoBias.Margin = new Padding(2, 3, 2, 3);
+            btMagAutoBias.Name = "btMagAutoBias";
+            btMagAutoBias.Size = new System.Drawing.Size(173, 23);
+            btMagAutoBias.TabIndex = 167;
+            btMagAutoBias.Text = "Auto Gyro Bias";
+            btMagAutoBias.UseVisualStyleBackColor = true;
+            btMagAutoBias.Click += btMagAutoBias_Click;
+            // 
+            // tbGyroX
+            // 
+            tbGyroX.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbGyroX.Location = new System.Drawing.Point(48, 85);
+            tbGyroX.Name = "tbGyroX";
+            tbGyroX.ReadOnly = true;
+            tbGyroX.Size = new System.Drawing.Size(39, 21);
+            tbGyroX.TabIndex = 166;
+            tbGyroX.Text = "0";
+            tbGyroX.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // lbGX
+            // 
+            lbGX.AutoSize = true;
+            lbGX.Location = new System.Drawing.Point(12, 87);
+            lbGX.Name = "lbGX";
+            lbGX.Size = new System.Drawing.Size(32, 15);
+            lbGX.TabIndex = 165;
+            lbGX.Text = "Gyro";
+            lbGX.TextAlign = ContentAlignment.MiddleRight;
+            // 
+            // tbGyroZ
+            // 
+            tbGyroZ.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbGyroZ.Location = new System.Drawing.Point(137, 85);
+            tbGyroZ.Name = "tbGyroZ";
+            tbGyroZ.ReadOnly = true;
+            tbGyroZ.Size = new System.Drawing.Size(39, 21);
+            tbGyroZ.TabIndex = 164;
+            tbGyroZ.Text = "0";
+            tbGyroZ.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // tbGyroY
+            // 
+            tbGyroY.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
+            tbGyroY.Location = new System.Drawing.Point(92, 85);
+            tbGyroY.Name = "tbGyroY";
+            tbGyroY.ReadOnly = true;
+            tbGyroY.Size = new System.Drawing.Size(39, 21);
+            tbGyroY.TabIndex = 162;
+            tbGyroY.Text = "0";
+            tbGyroY.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
+            // 
+            // Form1
+            // 
+            AutoScaleMode = AutoScaleMode.None;
+            BackColor = System.Drawing.SystemColors.InactiveCaption;
+            BackgroundImageLayout = ImageLayout.Center;
+            ClientSize = new System.Drawing.Size(654, 661);
+            Controls.Add(gbMagGyro);
+            Controls.Add(tabControl1);
+            Controls.Add(gbHotKey);
+            Controls.Add(gbScaling);
+            Controls.Add(gbDriftComp);
+            Controls.Add(tbSketch);
+            Controls.Add(bMonitor);
+            Controls.Add(bWipeAll);
+            Controls.Add(groupBox1);
+            Controls.Add(gbBias);
+            Controls.Add(gbTrackerConfig);
+            Controls.Add(menuStrip1);
+            Font = new Font("Arial", 9F, System.Drawing.FontStyle.Regular, GraphicsUnit.Point, 0);
+            FormBorderStyle = FormBorderStyle.FixedSingle;
+            HelpButton = true;
+            MainMenuStrip = menuStrip1;
+            Margin = new Padding(4, 5, 4, 5);
+            MaximizeBox = false;
+            MaximumSize = new System.Drawing.Size(670, 700);
+            MinimumSize = new System.Drawing.Size(670, 700);
+            Name = "Form1";
+            StartPosition = FormStartPosition.CenterParent;
+            Text = "EDTracker UI";
+            groupBox1.ResumeLayout(false);
+            gbBias.ResumeLayout(false);
+            gbBias.PerformLayout();
+            gbHotKey.ResumeLayout(false);
+            gbHotKey.PerformLayout();
+            gbTrackerConfig.ResumeLayout(false);
+            gbTrackerConfig.PerformLayout();
+            gbDriftComp.ResumeLayout(false);
+            gbDriftComp.PerformLayout();
+            gbScaling.ResumeLayout(false);
+            gbScaling.PerformLayout();
+            ((ISupportInitialize)sliderSmoothing).EndInit();
+            menuStrip1.ResumeLayout(false);
+            menuStrip1.PerformLayout();
+            gbMagCalib.ResumeLayout(false);
+            gbMagCalib.PerformLayout();
+            ((ISupportInitialize)tbarMagSens).EndInit();
+            tabControl1.ResumeLayout(false);
+            tabPage1.ResumeLayout(false);
+            tabPage1.PerformLayout();
+            tabPage2.ResumeLayout(false);
+            groupBox2.ResumeLayout(false);
+            groupBox2.PerformLayout();
+            gbMagGyro.ResumeLayout(false);
+            gbMagGyro.PerformLayout();
+            ResumeLayout(false);
+            PerformLayout();
         }
 
         public class DoubleBufferedPanel : Panel
