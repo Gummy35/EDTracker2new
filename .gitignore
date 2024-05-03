@@ -8,3 +8,8 @@
 /Source/EDTrackerUI4/bin/Debug/net8.0-windows
 /.vs
 /Source/ArduinoUploader/bin/Debug/net8.0
+/Source/EDTrackerWpfControls/bin/Debug/net8.0-windows/EDTrackerWpfControls.dll
+/Source/EDTrackerWpfControls/bin/Debug/net8.0-windows/EDTrackerWpfControls.pdb
+/Source/ArduinoUploader/obj/Debug/net8.0/ArduinoUploader.dll
+/Source/ArduinoUploader/obj/Debug/net8.0/ArduinoUploader.pdb
+/Source/ArduinoUploader/obj/Debug/net8.0/ArduinoUploader.sourcelink.json
