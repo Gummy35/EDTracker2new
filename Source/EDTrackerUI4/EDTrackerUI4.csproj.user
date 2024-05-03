@@ -11,28 +11,25 @@
     <VerifyUploadedFiles>false</VerifyUploadedFiles>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Update="EDTrackerUI3\AboutBox1.cs">
+    <Compile Update="EDTrackerUI3\AboutBox.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Update="EDTrackerUI3\fClosing.cs">
+    <Compile Update="EDTrackerUI3\BiasCalc.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Update="EDTrackerUI3\flashDialog.cs">
+    <Compile Update="EDTrackerUI3\ClosingForm.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Update="EDTrackerUI3\Form1.cs">
+    <Compile Update="EDTrackerUI3\DebugForm.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Update="EDTrackerUI3\Form2.cs">
+    <Compile Update="EDTrackerUI3\FlashDialog.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Update="EDTrackerUI3\frmBiasCalc.cs">
+    <Compile Update="EDTrackerUI3\MagForm.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Update="EDTrackerUI3\frmDebug.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Update="EDTrackerUI3\magForm.cs">
+    <Compile Update="EDTrackerUI3\MainForm.cs">
       <SubType>Form</SubType>
     </Compile>
   </ItemGroup>

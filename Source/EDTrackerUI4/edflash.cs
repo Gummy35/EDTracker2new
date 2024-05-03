@@ -10,29 +10,28 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Xml.Serialization;
 
-#nullable disable
 [GeneratedCode("xsd", "4.0.30319.33440")]
 [XmlRoot(Namespace = "", IsNullable = false)]
 [XmlType(AnonymousType = true)]
 [DebuggerStepThrough]
 [DesignerCategory("code")]
 [Serializable]
-public class edflash
+public class EDFlash
 {
-  private edflashDownload[] downloadField;
-  private string apilevelField;
+    private EDFlashDownload[] downloadField;
+    private string apilevelField;
 
-  [XmlElement("download")]
-  public edflashDownload[] download
-  {
-    get => this.downloadField;
-    set => this.downloadField = value;
-  }
+    [XmlElement("download")]
+    public EDFlashDownload[] download
+    {
+        get => this.downloadField;
+        set => this.downloadField = value;
+    }
 
-  [XmlAttribute]
-  public string apilevel
-  {
-    get => this.apilevelField;
-    set => this.apilevelField = value;
-  }
+    [XmlAttribute]
+    public string apilevel
+    {
+        get => this.apilevelField;
+        set => this.apilevelField = value;
+    }
 }

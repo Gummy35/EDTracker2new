@@ -2,27 +2,20 @@
 using RJCP.IO.Ports;
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Diagnostics;
-using System.Drawing;
 using System.Linq;
 using System.Threading;
 using System.Windows.Forms;
 
-#nullable disable
 namespace EDTrackerUI3
 {
-    public class flashDialog : Form, IArduinoUploaderLogger
+    public partial class FlashDialog : Form, IArduinoUploaderLogger
     {
         private string hexFile;
         private string port;
         private bool isBootloader;
         private SerialPortStream mySerialPort;
         private Stopwatch sw;
-        private IContainer components;
-        private RichTextBox rtLog;
-        private ProgressBar progressBar1;
-        private Button bClose;
 
         public bool touchPort(string port, int baud)
         {
@@ -72,7 +65,7 @@ namespace EDTrackerUI3
             }
         }
 
-        public flashDialog(string hexFile, string port, bool isBootloader)
+        public FlashDialog(string hexFile, string port, bool isBootloader)
         {
             this.InitializeComponent();
             this.hexFile = hexFile;
@@ -168,68 +161,6 @@ namespace EDTrackerUI3
         }
 
         private void bClose_Click(object sender, EventArgs e) => this.Close();
-
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing && this.components != null)
-                this.components.Dispose();
-            base.Dispose(disposing);
-        }
-
-        private void InitializeComponent()
-        {
-            rtLog = new RichTextBox();
-            progressBar1 = new ProgressBar();
-            bClose = new Button();
-            SuspendLayout();
-            // 
-            // rtLog
-            // 
-            rtLog.BorderStyle = BorderStyle.FixedSingle;
-            rtLog.DetectUrls = false;
-            rtLog.Font = new Font("Courier New", 8.25F, FontStyle.Regular, GraphicsUnit.Point, 0);
-            rtLog.Location = new Point(7, 12);
-            rtLog.Name = "rtLog";
-            rtLog.ScrollBars = RichTextBoxScrollBars.ForcedVertical;
-            rtLog.Size = new Size(517, 273);
-            rtLog.TabIndex = 0;
-            rtLog.Text = "";
-            // 
-            // progressBar1
-            // 
-            progressBar1.Location = new Point(7, 291);
-            progressBar1.Name = "progressBar1";
-            progressBar1.Size = new Size(436, 25);
-            progressBar1.TabIndex = 1;
-            // 
-            // bClose
-            // 
-            bClose.Enabled = false;
-            bClose.Location = new Point(449, 291);
-            bClose.Name = "bClose";
-            bClose.Size = new Size(75, 25);
-            bClose.TabIndex = 2;
-            bClose.Tag = "1";
-            bClose.Text = "Close";
-            bClose.UseVisualStyleBackColor = true;
-            bClose.Click += bClose_Click;
-            // 
-            // flashDialog
-            // 
-            AutoScaleMode = AutoScaleMode.None;
-            ClientSize = new Size(536, 328);
-            ControlBox = false;
-            Controls.Add(bClose);
-            Controls.Add(progressBar1);
-            Controls.Add(rtLog);
-            FormBorderStyle = FormBorderStyle.FixedSingle;
-            MaximizeBox = false;
-            MinimizeBox = false;
-            Name = "flashDialog";
-            Text = "Flash EDTracker";
-            TopMost = true;
-            ResumeLayout(false);
-        }
 
         public void Error(string message, Exception exception)
         {

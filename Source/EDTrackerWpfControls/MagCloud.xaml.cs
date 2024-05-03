@@ -11,13 +11,6 @@ namespace EDTrackerWpfControls
     public partial class MagCloud : UserControl
     {
         private DispatcherTimer dispatcherTimer;
-        //internal Viewport3D mainViewport;
-        //internal PerspectiveCamera camMain;
-        //internal DirectionalLight dirLightMain;
-        //internal ModelVisual3D MyModel;
-        //internal AxisAngleRotation3D rotatePitch;
-        //internal AxisAngleRotation3D rotateYaw;
-        //private bool _contentLoaded;
 
         public MagCloud()
         {
@@ -180,31 +173,31 @@ namespace EDTrackerWpfControls
             Matrix<double> matrix4 = matrix3.Add(1.0);
             Matrix<double> matrix5 = matrix1.Transpose() * matrix4;
             Matrix<double> matrix6 = matrix2.Inverse() * matrix5;
-            Matrix<double> other4 = build1.DenseOfColumnArrays(new double[4]
-            {
+            Matrix<double> other4 = build1.DenseOfColumnArrays(
+            [
         matrix6[0, 0],
         matrix6[3, 0],
         matrix6[4, 0],
         matrix6[6, 0]
-            }, new double[4]
-            {
+            ],
+            [
         matrix6[3, 0],
         matrix6[1, 0],
         matrix6[5, 0],
         matrix6[7, 0]
-            }, new double[4]
-            {
+            ],
+            [
         matrix6[4, 0],
         matrix6[5, 0],
         matrix6[2, 0],
         matrix6[8, 0]
-            }, new double[4]
-            {
+            ],
+            [
         matrix6[6, 0],
         matrix6[7, 0],
         matrix6[8, 0],
         -1.0
-            });
+            ]);
             Matrix<double> matrix7 = -1.0 * other4.SubMatrix(0, 3, 0, 3).Inverse() * matrix6.SubMatrix(6, 3, 0, 1);
             offsets[0] = matrix7[0, 0] - 500.0;
             offsets[1] = matrix7[1, 0] - 500.0;
@@ -241,12 +234,12 @@ namespace EDTrackerWpfControls
             this.compensate(rawPoints, pCount, m, offsets);
             for (int index = 0; index < pCount; ++index)
             {
-                Vector<double> vector = Vector<double>.Build.DenseOfArray(new double[3]
-                {
+                Vector<double> vector = Vector<double>.Build.DenseOfArray(
+                [
           rawPoints[index].X - offsets[0],
           rawPoints[index].Y - offsets[1],
           rawPoints[index].Z - offsets[2]
-                }) * m;
+                ]) * m;
                 xformPoints[index].X = vector[0];
                 xformPoints[index].Y = vector[1];
                 xformPoints[index].Z = vector[2];

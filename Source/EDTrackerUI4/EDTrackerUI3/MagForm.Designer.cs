@@ -1,13 +1,9 @@
-﻿using System;
-using System.Collections;
-using System.ComponentModel;
-using System.Diagnostics;
-using System.Reflection;
+﻿using System.Drawing;
 using System.Windows.Forms;
 
 namespace EDTrackerUI3
 {
-    public partial class fClosing : Form
+    partial class MagForm
     {
         /// <summary>
         /// Required designer variable.
@@ -35,34 +31,37 @@ namespace EDTrackerUI3
         /// </summary>
         private void InitializeComponent()
         {
-            progressBar1 = new ProgressBar();
+            richTextBox1 = new RichTextBox();
             SuspendLayout();
             // 
-            // progressBar1
+            // richTextBox1
             // 
-            progressBar1.Location = new System.Drawing.Point(16, 18);
-            progressBar1.Margin = new Padding(4, 5, 4, 5);
-            progressBar1.MarqueeAnimationSpeed = 50;
-            progressBar1.Name = "progressBar1";
-            progressBar1.Size = new System.Drawing.Size(337, 35);
-            progressBar1.Style = ProgressBarStyle.Marquee;
-            progressBar1.TabIndex = 0;
-            progressBar1.UseWaitCursor = true;
+            richTextBox1.Location = new Point(11, 12);
+            richTextBox1.Margin = new Padding(4, 5, 4, 5);
+            richTextBox1.Name = "richTextBox1";
+            richTextBox1.Size = new Size(218, 46);
+            richTextBox1.TabIndex = 64;
+            richTextBox1.Text = "Rotate you EDTracker in all axis until values no longer change.";
             // 
-            // fClosing
+            // MagForm
             // 
-            AutoScaleDimensions = new System.Drawing.SizeF(8F, 20F);
+            AutoScaleDimensions = new SizeF(6F, 13F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new System.Drawing.Size(369, 69);
-            ControlBox = false;
-            Controls.Add(progressBar1);
+            ClientSize = new Size(245, 207);
+            Controls.Add(richTextBox1);
             FormBorderStyle = FormBorderStyle.FixedToolWindow;
             Margin = new Padding(4, 5, 4, 5);
-            Name = "fClosing";
-            Text = "Application Closing...";
-            UseWaitCursor = true;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            Name = "MagForm";
+            ShowIcon = false;
+            ShowInTaskbar = false;
+            Text = "Magnetometer Calibration";
             ResumeLayout(false);
         }
+
         #endregion
+
+        private System.Windows.Forms.RichTextBox richTextBox1;
     }
 }
